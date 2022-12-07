@@ -883,6 +883,15 @@ func NoEmpty[T comparable](list []T) []T {
 	}
 	return result
 }
+func GtZero[T constraints.Float | constraints.Integer](list []T) []T {
+	result := make([]T, 0, len(list))
+	for _, e := range list {
+		if e > 0 {
+			result = append(result, e)
+		}
+	}
+	return result
+}
 func Rand[T any](list []T, count int) []T {
 	size := len(list)
 	templist := append([]T{}, list...)
@@ -950,5 +959,14 @@ func Try(callback func() error, nums ...int) bool {
 func TryCatch(callback func() error, catch func()) {
 	if !try(callback) {
 		catch()
+	}
+}
+
+// 三目运算int
+func IF[T any](cond bool, suc, fail T) T {
+	if cond {
+		return suc
+	} else {
+		return fail
 	}
 }
