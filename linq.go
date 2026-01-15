@@ -1,7 +1,9 @@
 package linq
 
 import (
+	"math/big"
 	"math/rand"
+	crand "crypto/rand"
 	"time"
 
 	"golang.org/x/exp/constraints"
@@ -892,13 +894,21 @@ func GtZero[T constraints.Float | constraints.Integer](list []T) []T {
 	}
 	return result
 }
+func cryptoRandIntn(n int) int {
+	max := big.NewInt(int64(n))
+	i, err := crand.Int(crand.Reader, max)
+	if err != nil {
+		return 0
+	}
+	return int(i.Int64())
+}
 func Rand[T any](list []T, count int) []T {
 	size := len(list)
 	templist := append([]T{}, list...)
 	results := []T{}
 	for i := 0; i < size && i < count; i++ {
 		copyLength := size - i
-		index := rand.Intn(size - i)
+		index := cryptoRandIntn(size - i)
 		results = append(results, templist[index])
 		templist[index] = templist[copyLength-1]
 		templist = templist[:copyLength-1]
