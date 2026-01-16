@@ -24,14 +24,11 @@ var members = []*BMember{
 }
 
 func TestSum(t *testing.T) {
-	out := From(members).SumIntBy(func(m *BMember) int64 { return int64(m.Sex) })
-	fmt.Printf("%+v \n", out)
-	out2 := MaxBy(From(members), func(m *BMember) int8 { return m.Sex })
-	fmt.Printf("%+v \n", out2)
-	out3 := MinBy(From(members), func(m *BMember) int8 { return m.Sex })
-	fmt.Printf("%+v \n", out3)
-	out4 := From(members).AvgBy(func(m *BMember) float64 { return float64(m.Sex) })
-	fmt.Printf("%+v \n", out4)
+	fmt.Printf("Sum Age: %+v \n", From(members).SumIntBy(func(m *BMember) int { return m.Age }))
+	fmt.Printf("Avg Age: %+v \n", From(members).AvgIntBy(func(m *BMember) int { return m.Age }))
+	fmt.Printf("Sum Age: %+v \n", SumBy(From(members), func(m *BMember) int { return m.Age }))
+	fmt.Printf("Min Age: %+v \n", MinBy(From(members), func(m *BMember) int { return m.Age }))
+	fmt.Printf("Max Age: %+v \n", MaxBy(From(members), func(m *BMember) int { return m.Age }))
 }
 func TestPage(t *testing.T) {
 	page, pageSize := 1, 3

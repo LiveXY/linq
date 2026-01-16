@@ -1,9 +1,9 @@
 package linq
 
 import (
+	crand "crypto/rand"
 	"math/big"
 	"math/rand"
-	crand "crypto/rand"
 	"time"
 
 	"golang.org/x/exp/constraints"
@@ -413,20 +413,110 @@ func (q Query[T]) Single() (r T) {
 	}
 	return item
 }
-
-func (q Query[T]) SumIntBy(selector func(T) int64) (r int64) {
+func (q Query[T]) SumInt8By(selector func(T) int8) (r int8) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		r += selector(item)
 	}
 	return
 }
-func (q Query[T]) SumFloatBy(selector func(T) float64) (r float64) {
+func (q Query[T]) SumInt16By(selector func(T) int16) (r int16) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		r += selector(item)
 	}
 	return
+}
+func (q Query[T]) SumIntBy(selector func(T) int) (r int) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+func (q Query[T]) SumInt32By(selector func(T) int32) (r int32) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+func (q Query[T]) SumInt64By(selector func(T) int64) (r int64) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+func (q Query[T]) SumUInt8By(selector func(T) uint8) (r uint8) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+func (q Query[T]) SumUInt16By(selector func(T) uint16) (r uint16) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+func (q Query[T]) SumUIntBy(selector func(T) uint) (r uint) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+func (q Query[T]) SumUInt32By(selector func(T) uint32) (r uint32) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+func (q Query[T]) SumUInt64By(selector func(T) uint64) (r uint64) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+func (q Query[T]) SumFloat32By(selector func(T) float32) (r float32) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+func (q Query[T]) SumFloat64By(selector func(T) float64) (r float64) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+
+func (q Query[T]) AvgIntBy(selector func(T) int) float64 {
+	next := q.iterate()
+	var sum float64
+	var n int
+	for item, ok := next(); ok; item, ok = next() {
+		sum += float64(selector(item))
+		n++
+	}
+	return float64(sum) / float64(n)
+}
+func (q Query[T]) AvgInt64By(selector func(T) int64) float64 {
+	next := q.iterate()
+	var sum float64
+	var n int
+	for item, ok := next(); ok; item, ok = next() {
+		sum += float64(selector(item))
+		n++
+	}
+	return float64(sum) / float64(n)
 }
 func (q Query[T]) AvgBy(selector func(T) float64) float64 {
 	next := q.iterate()
@@ -744,7 +834,7 @@ func Max[T constraints.Ordered](list ...T) T {
 	}
 	return max
 }
-func MinBy[T any, V constraints.Integer](q Query[T], selector func(T) V) (r V) {
+func MinBy[T any, V constraints.Integer | constraints.Float](q Query[T], selector func(T) V) (r V) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		n := selector(item)
@@ -758,7 +848,7 @@ func MinBy[T any, V constraints.Integer](q Query[T], selector func(T) V) (r V) {
 	}
 	return
 }
-func MaxBy[T any, V constraints.Integer](q Query[T], selector func(T) V) (r V) {
+func MaxBy[T any, V constraints.Integer | constraints.Float](q Query[T], selector func(T) V) (r V) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		n := selector(item)
@@ -772,6 +862,23 @@ func MaxBy[T any, V constraints.Integer](q Query[T], selector func(T) V) (r V) {
 	}
 	return
 }
+func SumBy[T any, V constraints.Integer | constraints.Float | constraints.Complex](q Query[T], selector func(T) V) (r V) {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		r += selector(item)
+	}
+	return
+}
+func AvgBy[T any, V constraints.Integer | constraints.Float | constraints.Complex](q Query[T], selector func(T) float64) float64 {
+	next := q.iterate()
+	var sum float64
+	var n int
+	for item, ok := next(); ok; item, ok = next() {
+		sum += selector(item)
+		n++
+	}
+	return float64(sum) / float64(n)
+}
 
 func Sum[T constraints.Float | constraints.Integer | constraints.Complex](list []T) T {
 	var sum T = 0
@@ -780,6 +887,7 @@ func Sum[T constraints.Float | constraints.Integer | constraints.Complex](list [
 	}
 	return sum
 }
+
 func Every[T comparable](list []T, subset []T) bool {
 	for _, elem := range subset {
 		if !Contains(list, elem) {
