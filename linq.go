@@ -3,10 +3,8 @@ package linq
 import (
 	crand "crypto/rand"
 	"math/big"
-	"math/rand"
+	"math/rand/v2"
 	"time"
-
-	"golang.org/x/exp/constraints"
 )
 
 type lesserFunc[T any] func([]T) func(i, j int) bool
@@ -686,7 +684,7 @@ func ExceptBy[T, V any](q Query[T], q2 Query[T], selector func(T) V) Query[V] {
 		},
 	}
 }
-func Range[T constraints.Integer](start, count T) Query[T] {
+func Range[T Integer](start, count T) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
 			var index T
@@ -704,7 +702,7 @@ func Range[T constraints.Integer](start, count T) Query[T] {
 		},
 	}
 }
-func Repeat[T constraints.Ordered](value T, count int) Query[T] {
+func Repeat[T Ordered](value T, count int) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
 			var index int
@@ -806,7 +804,7 @@ func Reverse[T any](list []T) []T {
 	}
 	return list
 }
-func Min[T constraints.Ordered](list ...T) T {
+func Min[T Ordered](list ...T) T {
 	var min T
 	if len(list) == 0 {
 		return min
@@ -820,7 +818,7 @@ func Min[T constraints.Ordered](list ...T) T {
 	}
 	return min
 }
-func Max[T constraints.Ordered](list ...T) T {
+func Max[T Ordered](list ...T) T {
 	var max T
 	if len(list) == 0 {
 		return max
@@ -834,7 +832,7 @@ func Max[T constraints.Ordered](list ...T) T {
 	}
 	return max
 }
-func MinBy[T any, V constraints.Integer | constraints.Float](q Query[T], selector func(T) V) (r V) {
+func MinBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		n := selector(item)
@@ -848,7 +846,7 @@ func MinBy[T any, V constraints.Integer | constraints.Float](q Query[T], selecto
 	}
 	return
 }
-func MaxBy[T any, V constraints.Integer | constraints.Float](q Query[T], selector func(T) V) (r V) {
+func MaxBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		n := selector(item)
@@ -862,14 +860,14 @@ func MaxBy[T any, V constraints.Integer | constraints.Float](q Query[T], selecto
 	}
 	return
 }
-func SumBy[T any, V constraints.Integer | constraints.Float | constraints.Complex](q Query[T], selector func(T) V) (r V) {
+func SumBy[T any, V Integer | Float | Complex](q Query[T], selector func(T) V) (r V) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		r += selector(item)
 	}
 	return
 }
-func AvgBy[T any, V constraints.Integer | constraints.Float | constraints.Complex](q Query[T], selector func(T) float64) float64 {
+func AvgBy[T any, V Integer | Float | Complex](q Query[T], selector func(T) float64) float64 {
 	next := q.iterate()
 	var sum float64
 	var n int
@@ -880,7 +878,7 @@ func AvgBy[T any, V constraints.Integer | constraints.Float | constraints.Comple
 	return float64(sum) / float64(n)
 }
 
-func Sum[T constraints.Float | constraints.Integer | constraints.Complex](list []T) T {
+func Sum[T Float | Integer | Complex](list []T) T {
 	var sum T = 0
 	for _, val := range list {
 		sum += val
@@ -993,7 +991,7 @@ func NoEmpty[T comparable](list []T) []T {
 	}
 	return result
 }
-func GtZero[T constraints.Float | constraints.Integer](list []T) []T {
+func GtZero[T Float | Integer](list []T) []T {
 	result := make([]T, 0, len(list))
 	for _, e := range list {
 		if e > 0 {

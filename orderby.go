@@ -2,29 +2,27 @@ package linq
 
 import (
 	"sort"
-
-	"golang.org/x/exp/constraints"
 )
 
 func (q Query[T]) HasOrder() bool {
 	return q.lesser != nil
 }
 
-func OrderBy[T any, K constraints.Ordered](q Query[T], key func(t T) K) Query[T] {
+func OrderBy[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 	return orderByLesser(q, func(data []T) func(i, j int) bool {
 		return func(i, j int) bool {
 			return key(data[i]) < key(data[j])
 		}
 	})
 }
-func OrderByDescending[T any, K constraints.Ordered](q Query[T], key func(t T) K) Query[T] {
+func OrderByDescending[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 	return orderByLesser(q, func(data []T) func(i, j int) bool {
 		return func(i, j int) bool {
 			return key(data[i]) > key(data[j])
 		}
 	})
 }
-func ThenBy[T any, K constraints.Ordered](q Query[T], key func(t T) K) Query[T] {
+func ThenBy[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 	lesser := q.lesser
 	return orderByLesser(q, chainLessers(lesser, func(data []T) func(i, j int) bool {
 		return func(i, j int) bool {
@@ -32,7 +30,7 @@ func ThenBy[T any, K constraints.Ordered](q Query[T], key func(t T) K) Query[T] 
 		}
 	}))
 }
-func ThenByDescending[T any, K constraints.Ordered](q Query[T], key func(t T) K) Query[T] {
+func ThenByDescending[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 	lesser := q.lesser
 	return orderByLesser(q, chainLessers(lesser, func(data []T) func(i, j int) bool {
 		return func(i, j int) bool {
