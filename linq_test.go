@@ -88,7 +88,7 @@ func TestFrom(t *testing.T) {
 		func(m *BMember) int8 { return m.Sex },
 	).ToSlice()
 	for _, v := range out3 {
-		fmt.Printf("%+v \n", v)
+		fmt.Printf("Key: %v, Value: %v \n", v.Key, *v.Value)
 	}
 	out4 := GroupBySelect(
 		From(members),
@@ -96,7 +96,7 @@ func TestFrom(t *testing.T) {
 		func(m *BMember) *BMember { return m },
 	).ToSlice()
 	for _, v := range out4 {
-		fmt.Printf("%+v \n", v)
+		fmt.Printf("Key: %v, Value: %v \n", v.Key, *v.Value)
 	}
 }
 
@@ -273,13 +273,13 @@ func TestElementAccess(t *testing.T) {
 // TestToMapUsage 测试映射转换 (ToMapSlice, ToMap)
 func TestToMapUsage(t *testing.T) {
 	// 测试 Q.ToMapSlice
-	maps := From(members).ToMapSlice(func(m *BMember) map[string]any {
-		return map[string]any{"ID": m.ID, "Name": m.Name}
+	maps := From(members).ToMapSlice(func(m *BMember) map[string]*BMember {
+		return map[string]*BMember{m.Name: m}
 	})
 	if len(maps) != 4 {
 		t.Errorf("ToMapSlice 应该返回 4 个元素")
 	}
-	if maps[0]["Name"] != "张三" {
+	if maps[0]["张三"].Name != "张三" {
 		t.Errorf("第一个元素的 Name 应该是 张三")
 	}
 

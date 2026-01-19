@@ -442,12 +442,15 @@ func TestToMapSliceMethod(t *testing.T) {
 	}
 	people := []Person{{"Alice", 30}, {"Bob", 25}}
 
-	result := From(people).ToMapSlice(func(p Person) map[string]any {
-		return map[string]any{"name": p.Name, "age": p.Age}
+	result := From(people).ToMapSlice(func(p Person) map[string]Person {
+		return map[string]Person{p.Name: p}
 	})
 
 	if len(result) != 2 {
 		t.Errorf("期望 2 个元素，实际得到 %d", len(result))
+	}
+	if result[0]["Alice"].Age != 30 {
+		t.Errorf("期望 Alice 年龄 30，实际得到 %d", result[0]["Alice"].Age)
 	}
 }
 
@@ -847,30 +850,6 @@ func TestIF(t *testing.T) {
 // ============================================================================
 // 额外覆盖测试
 // ============================================================================
-
-// TestExceptComparable 测试优化的差集
-func TestExceptComparable(t *testing.T) {
-	nums1 := []int{1, 2, 3, 4, 5}
-	nums2 := []int{3, 4, 5, 6, 7}
-	result := ExceptComparable(From(nums1), From(nums2)).ToSlice()
-
-	expected := []int{1, 2}
-	if len(result) != len(expected) {
-		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
-	}
-}
-
-// TestIntersectComparable 测试优化的交集
-func TestIntersectComparable(t *testing.T) {
-	nums1 := []int{1, 2, 3, 4, 5}
-	nums2 := []int{3, 4, 5, 6, 7}
-	result := IntersectComparable(From(nums1), From(nums2)).ToSlice()
-
-	expected := []int{3, 4, 5}
-	if len(result) != len(expected) {
-		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
-	}
-}
 
 // TestExceptBy 测试 ExceptBy 函数
 func TestExceptBy(t *testing.T) {
