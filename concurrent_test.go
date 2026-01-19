@@ -25,10 +25,10 @@ func TestForEachParallelPanicRecovery(t *testing.T) {
 
 	// 应该处理了除了 panic 的那个之外的所有元素
 	if processed.Load() != 99 {
-		t.Errorf("Expected 99 processed items, got %d", processed.Load())
+		t.Errorf("期望 99 个处理项，实际得到 %d", processed.Load())
 	}
 	if panicked.Load() != 1 {
-		t.Errorf("Expected 1 panic, got %d", panicked.Load())
+		t.Errorf("期望 1 次 panic，实际得到 %d", panicked.Load())
 	}
 }
 
@@ -44,7 +44,7 @@ func TestSelectAsyncEarlyExit(t *testing.T) {
 	}).Take(10).ToSlice()
 
 	if len(result) != 10 {
-		t.Fatalf("Expected 10 items, got %d", len(result))
+		t.Fatalf("期望 10 个元素，实际得到 %d", len(result))
 	}
 
 	// 等待一段时间，确保后台 goroutine 能够正常退出
@@ -68,7 +68,7 @@ func TestSelectAsyncPanicRecovery(t *testing.T) {
 
 	// 应该得到除了 panic 的那个之外的所有结果
 	if len(result) != 99 {
-		t.Errorf("Expected 99 items, got %d", len(result))
+		t.Errorf("期望 99 个元素，实际得到 %d", len(result))
 	}
 }
 
@@ -79,7 +79,7 @@ func TestBufferPool(t *testing.T) {
 	// 获取 buffer
 	buf1 := pool.Get(100)
 	if cap(buf1) < 100 {
-		t.Errorf("Expected capacity >= 100, got %d", cap(buf1))
+		t.Errorf("期望容量 >= 100，实际得到 %d", cap(buf1))
 	}
 
 	// 使用 buffer
@@ -91,7 +91,7 @@ func TestBufferPool(t *testing.T) {
 	// 再次获取，应该复用
 	buf2 := pool.Get(50)
 	if len(buf2) != 0 {
-		t.Errorf("Expected empty buffer, got length %d", len(buf2))
+		t.Errorf("期望空 buffer，实际长度 %d", len(buf2))
 	}
 }
 
@@ -105,7 +105,7 @@ func TestDistinctComparable(t *testing.T) {
 	result := DistinctComparable(From(nums)).ToSlice()
 
 	if len(result) != 100 {
-		t.Errorf("Expected 100 distinct items, got %d", len(result))
+		t.Errorf("期望 100 个不重复元素，实际得到 %d", len(result))
 	}
 }
 
@@ -146,7 +146,7 @@ func TestAppendToWithPool(t *testing.T) {
 	result := From(nums).Where(func(i int) bool { return i%2 == 0 }).AppendTo(buf)
 
 	if len(result) != 50 {
-		t.Errorf("Expected 50 items, got %d", len(result))
+		t.Errorf("期望 50 个元素，实际得到 %d", len(result))
 	}
 
 	// 归还 buffer
@@ -177,17 +177,17 @@ func TestAvgEmptySlice(t *testing.T) {
 	empty := []int{}
 	avg := From(empty).AvgIntBy(func(i int) int { return i })
 	if avg != 0 {
-		t.Errorf("Expected 0 for empty slice, got %f", avg)
+		t.Errorf("空切片时期望 0，实际得到 %f", avg)
 	}
 
 	avg64 := From(empty).AvgInt64By(func(i int) int64 { return int64(i) })
 	if avg64 != 0 {
-		t.Errorf("Expected 0 for empty slice, got %f", avg64)
+		t.Errorf("空切片时期望 0，实际得到 %f", avg64)
 	}
 
 	avgFloat := From(empty).AvgBy(func(i int) float64 { return float64(i) })
 	if avgFloat != 0 {
-		t.Errorf("Expected 0 for empty slice, got %f", avgFloat)
+		t.Errorf("空切片时期望 0，实际得到 %f", avgFloat)
 	}
 }
 
@@ -209,7 +209,7 @@ func TestFilterMultiple(t *testing.T) {
 	}
 	for i, v := range result {
 		if v != expected[i] {
-			t.Errorf("Index %d: expected %s, got %s", i, expected[i], v)
+			t.Errorf("索引 %d: 期望 %s，实际得到 %s", i, expected[i], v)
 		}
 	}
 }
@@ -225,7 +225,7 @@ func TestWithoutOptimized(t *testing.T) {
 	}
 	for i, v := range result {
 		if v != expected[i] {
-			t.Errorf("Index %d: expected %d, got %d", i, expected[i], v)
+			t.Errorf("索引 %d: 期望 %d，实际得到 %d", i, expected[i], v)
 		}
 	}
 }

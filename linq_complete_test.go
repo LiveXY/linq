@@ -1,8 +1,11 @@
 package linq
 
 import (
+	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // ============================================================================
@@ -19,7 +22,7 @@ func TestFromSlice(t *testing.T) {
 	}
 	for i, v := range result {
 		if v != nums[i] {
-			t.Errorf("Index %d: expected %d, got %d", i, nums[i], v)
+			t.Errorf("索引 %d: 期望 %d，实际得到 %d", i, nums[i], v)
 		}
 	}
 }
@@ -38,7 +41,7 @@ func TestFromChannel(t *testing.T) {
 	expected := []int{1, 2, 3, 4, 5}
 
 	if len(result) != len(expected) {
-		t.Errorf("Expected %d items, got %d", len(expected), len(result))
+		t.Errorf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -48,13 +51,13 @@ func TestFromMap(t *testing.T) {
 	result := FromMap(m).ToSlice()
 
 	if len(result) != 3 {
-		t.Errorf("Expected 3 items, got %d", len(result))
+		t.Errorf("期望 3 个元素，实际得到 %d", len(result))
 	}
 
 	// 验证所有键值对都存在
 	for _, kv := range result {
 		if v, ok := m[kv.Key]; !ok || v != kv.Value {
-			t.Errorf("Unexpected key-value: %v", kv)
+			t.Errorf("意外的键值对: %v", kv)
 		}
 	}
 }
@@ -70,11 +73,11 @@ func TestWhere(t *testing.T) {
 
 	expected := []int{2, 4, 6, 8, 10}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 	for i, v := range result {
 		if v != expected[i] {
-			t.Errorf("Index %d: expected %d, got %d", i, expected[i], v)
+			t.Errorf("索引 %d: 期望 %d，实际得到 %d", i, expected[i], v)
 		}
 	}
 }
@@ -112,7 +115,7 @@ func TestAppendItem(t *testing.T) {
 
 	expected := []int{1, 2, 3, 4}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -124,7 +127,7 @@ func TestConcat(t *testing.T) {
 
 	expected := []int{1, 2, 3, 4, 5, 6}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -145,14 +148,14 @@ func TestDefaultIfEmpty(t *testing.T) {
 	result := From(empty).DefaultIfEmpty(99).ToSlice()
 
 	if len(result) != 1 || result[0] != 99 {
-		t.Errorf("Expected [99], got %v", result)
+		t.Errorf("期望 [99]，实际得到 %v", result)
 	}
 
 	// 非空集合不应该添加默认值
 	nums := []int{1, 2, 3}
 	result2 := From(nums).DefaultIfEmpty(99).ToSlice()
 	if len(result2) != 3 {
-		t.Errorf("Expected 3 items, got %d", len(result2))
+		t.Errorf("期望 3 个元素，实际得到 %d", len(result2))
 	}
 }
 
@@ -163,7 +166,7 @@ func TestDistinctMethod(t *testing.T) {
 
 	expected := []int{1, 2, 3, 4}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -175,7 +178,7 @@ func TestExcept(t *testing.T) {
 
 	expected := []int{1, 2}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -187,7 +190,7 @@ func TestIntersectMethod(t *testing.T) {
 
 	expected := []int{3, 4, 5}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -201,13 +204,13 @@ func TestIndexOfMethod(t *testing.T) {
 	idx := From(nums).IndexOf(func(i int) bool { return i == 30 })
 
 	if idx != 2 {
-		t.Errorf("Expected index 2, got %d", idx)
+		t.Errorf("期望索引 2，实际得到 %d", idx)
 	}
 
 	// 不存在的元素
 	idx2 := From(nums).IndexOf(func(i int) bool { return i == 99 })
 	if idx2 != -1 {
-		t.Errorf("Expected -1, got %d", idx2)
+		t.Errorf("期望 -1，实际得到 %d", idx2)
 	}
 }
 
@@ -217,13 +220,13 @@ func TestAll(t *testing.T) {
 	result := From(nums).All(func(i int) bool { return i%2 == 0 })
 
 	if !result {
-		t.Error("Expected true for all even numbers")
+		t.Error("所有偶数时期望 true")
 	}
 
 	nums2 := []int{2, 4, 5, 8, 10}
 	result2 := From(nums2).All(func(i int) bool { return i%2 == 0 })
 	if result2 {
-		t.Error("Expected false when not all are even")
+		t.Error("当不全是偶数时期望 false")
 	}
 }
 
@@ -231,12 +234,12 @@ func TestAll(t *testing.T) {
 func TestAny(t *testing.T) {
 	nums := []int{1, 2, 3}
 	if !From(nums).Any() {
-		t.Error("Expected true for non-empty slice")
+		t.Error("非空切片期望 true")
 	}
 
 	empty := []int{}
 	if From(empty).Any() {
-		t.Error("Expected false for empty slice")
+		t.Error("空切片期望 false")
 	}
 }
 
@@ -246,7 +249,7 @@ func TestAnyWith(t *testing.T) {
 	result := From(nums).AnyWith(func(i int) bool { return i%2 == 0 })
 
 	if !result {
-		t.Error("Expected true, 8 is even")
+		t.Error("期望 true，8 是偶数")
 	}
 }
 
@@ -256,7 +259,7 @@ func TestCountWith(t *testing.T) {
 	count := From(nums).CountWith(func(i int) bool { return i%2 == 0 })
 
 	if count != 5 {
-		t.Errorf("Expected 5 even numbers, got %d", count)
+		t.Errorf("期望 5 个偶数，实际得到 %d", count)
 	}
 }
 
@@ -266,7 +269,7 @@ func TestFirstWith(t *testing.T) {
 	result := From(nums).FirstWith(func(i int) bool { return i%2 == 0 })
 
 	if result != 6 {
-		t.Errorf("Expected 6, got %d", result)
+		t.Errorf("期望 6，实际得到 %d", result)
 	}
 }
 
@@ -276,7 +279,7 @@ func TestLast(t *testing.T) {
 	result := From(nums).Last()
 
 	if result != 5 {
-		t.Errorf("Expected 5, got %d", result)
+		t.Errorf("期望 5，实际得到 %d", result)
 	}
 }
 
@@ -286,7 +289,7 @@ func TestLastWith(t *testing.T) {
 	result := From(nums).LastWith(func(i int) bool { return i%2 == 0 })
 
 	if result != 6 {
-		t.Errorf("Expected 6, got %d", result)
+		t.Errorf("期望 6，实际得到 %d", result)
 	}
 }
 
@@ -298,7 +301,7 @@ func TestReverseMethod(t *testing.T) {
 	expected := []int{5, 4, 3, 2, 1}
 	for i, v := range result {
 		if v != expected[i] {
-			t.Errorf("Index %d: expected %d, got %d", i, expected[i], v)
+			t.Errorf("索引 %d: 期望 %d，实际得到 %d", i, expected[i], v)
 		}
 	}
 }
@@ -309,14 +312,14 @@ func TestSingle(t *testing.T) {
 	result := From(single).Single()
 
 	if result != 42 {
-		t.Errorf("Expected 42, got %d", result)
+		t.Errorf("期望 42，实际得到 %d", result)
 	}
 
 	// 多个元素应该返回零值
 	multiple := []int{1, 2, 3}
 	result2 := From(multiple).Single()
 	if result2 != 0 {
-		t.Errorf("Expected 0 for multiple elements, got %d", result2)
+		t.Errorf("期望 0 (多个元素时)，实际得到 %d", result2)
 	}
 }
 
@@ -334,7 +337,7 @@ func TestForEach(t *testing.T) {
 	})
 
 	if sum != 15 {
-		t.Errorf("Expected sum 15, got %d", sum)
+		t.Errorf("期望总和 15，实际得到 %d", sum)
 	}
 }
 
@@ -351,7 +354,7 @@ func TestForEachIndexed(t *testing.T) {
 	})
 
 	if len(indices) != 3 || indices[0] != 0 || indices[1] != 1 || indices[2] != 2 {
-		t.Errorf("Unexpected indices: %v", indices)
+		t.Errorf("意外的索引: %v", indices)
 	}
 }
 
@@ -366,17 +369,17 @@ func TestSumAllTypes(t *testing.T) {
 
 	sumInt := From(items).SumIntBy(func(i Item) int { return i.Value })
 	if sumInt != 15 {
-		t.Errorf("SumIntBy: expected 15, got %d", sumInt)
+		t.Errorf("SumIntBy: 期望 15，实际得到 %d", sumInt)
 	}
 
 	sumInt64 := From(items).SumInt64By(func(i Item) int64 { return int64(i.Value) })
 	if sumInt64 != 15 {
-		t.Errorf("SumInt64By: expected 15, got %d", sumInt64)
+		t.Errorf("SumInt64By: 期望 15，实际得到 %d", sumInt64)
 	}
 
 	sumFloat := From(items).SumFloat64By(func(i Item) float64 { return float64(i.Value) })
 	if sumFloat != 15.0 {
-		t.Errorf("SumFloat64By: expected 15.0, got %f", sumFloat)
+		t.Errorf("SumFloat64By: 期望 15.0，实际得到 %f", sumFloat)
 	}
 }
 
@@ -386,17 +389,17 @@ func TestAvgAllTypes(t *testing.T) {
 
 	avgInt := From(nums).AvgIntBy(func(i int) int { return i })
 	if avgInt != 30.0 {
-		t.Errorf("AvgIntBy: expected 30.0, got %f", avgInt)
+		t.Errorf("AvgIntBy: 期望 30.0，实际得到 %f", avgInt)
 	}
 
 	avgInt64 := From(nums).AvgInt64By(func(i int) int64 { return int64(i) })
 	if avgInt64 != 30.0 {
-		t.Errorf("AvgInt64By: expected 30.0, got %f", avgInt64)
+		t.Errorf("AvgInt64By: 期望 30.0，实际得到 %f", avgInt64)
 	}
 
 	avgFloat := From(nums).AvgBy(func(i int) float64 { return float64(i) })
 	if avgFloat != 30.0 {
-		t.Errorf("AvgBy: expected 30.0, got %f", avgFloat)
+		t.Errorf("AvgBy: 期望 30.0，实际得到 %f", avgFloat)
 	}
 }
 
@@ -406,7 +409,7 @@ func TestCount(t *testing.T) {
 	count := From(nums).Count()
 
 	if count != 5 {
-		t.Errorf("Expected 5, got %d", count)
+		t.Errorf("期望 5，实际得到 %d", count)
 	}
 }
 
@@ -427,24 +430,24 @@ func TestToChannel(t *testing.T) {
 	}
 
 	if len(result) != 5 {
-		t.Errorf("Expected 5 items, got %d", len(result))
+		t.Errorf("期望 5 个元素，实际得到 %d", len(result))
 	}
 }
 
-// TestToMapMethod 测试 Query.ToMap 方法
-func TestToMapMethod(t *testing.T) {
+// TestToMapSliceMethod 测试 Query.ToMapSlice 方法
+func TestToMapSliceMethod(t *testing.T) {
 	type Person struct {
 		Name string
 		Age  int
 	}
 	people := []Person{{"Alice", 30}, {"Bob", 25}}
 
-	result := From(people).ToMap(func(p Person) map[string]any {
+	result := From(people).ToMapSlice(func(p Person) map[string]any {
 		return map[string]any{"name": p.Name, "age": p.Age}
 	})
 
 	if len(result) != 2 {
-		t.Errorf("Expected 2 items, got %d", len(result))
+		t.Errorf("期望 2 个元素，实际得到 %d", len(result))
 	}
 }
 
@@ -462,7 +465,7 @@ func TestSelectFunction(t *testing.T) {
 	expected := []string{"num_1", "num_2", "num_3", "num_4", "num_5"}
 	for i, v := range result {
 		if v != expected[i] {
-			t.Errorf("Index %d: expected %s, got %s", i, expected[i], v)
+			t.Errorf("索引 %d: 期望 %s，实际得到 %s", i, expected[i], v)
 		}
 	}
 }
@@ -478,7 +481,7 @@ func TestDistinctFunction(t *testing.T) {
 	result := Distinct(From(items), func(i Item) int { return i.ID }).ToSlice()
 
 	if len(result) != 3 {
-		t.Errorf("Expected 3 distinct IDs, got %d", len(result))
+		t.Errorf("期望 3 个不重复元素，实际得到 %d", len(result))
 	}
 }
 
@@ -488,11 +491,11 @@ func TestRange(t *testing.T) {
 
 	expected := []int{1, 2, 3, 4, 5}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 	for i, v := range result {
 		if v != expected[i] {
-			t.Errorf("Index %d: expected %d, got %d", i, expected[i], v)
+			t.Errorf("索引 %d: 期望 %d，实际得到 %d", i, expected[i], v)
 		}
 	}
 }
@@ -502,11 +505,11 @@ func TestRepeat(t *testing.T) {
 	result := Repeat("hello", 3).ToSlice()
 
 	if len(result) != 3 {
-		t.Fatalf("Expected 3 items, got %d", len(result))
+		t.Fatalf("期望 3 个元素，实际得到 %d", len(result))
 	}
 	for _, v := range result {
 		if v != "hello" {
-			t.Errorf("Expected 'hello', got '%s'", v)
+			t.Errorf("期望 'hello'，实际得到 '%s'", v)
 		}
 	}
 }
@@ -522,7 +525,7 @@ func TestToMapFunction(t *testing.T) {
 	result := ToMap(From(items), func(i Item) string { return i.Key })
 
 	if result["a"].Value != 1 || result["b"].Value != 2 || result["c"].Value != 3 {
-		t.Errorf("Unexpected map: %v", result)
+		t.Errorf("意外的 map: %v", result)
 	}
 }
 
@@ -537,7 +540,7 @@ func TestUniq(t *testing.T) {
 
 	expected := []int{1, 2, 3, 4}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -546,10 +549,10 @@ func TestContains(t *testing.T) {
 	nums := []int{1, 2, 3, 4, 5}
 
 	if !Contains(nums, 3) {
-		t.Error("Expected true for 3")
+		t.Error("3 期望返回 true")
 	}
 	if Contains(nums, 99) {
-		t.Error("Expected false for 99")
+		t.Error("99 期望返回 false")
 	}
 }
 
@@ -558,10 +561,10 @@ func TestIndexOfFunction(t *testing.T) {
 	nums := []int{10, 20, 30, 40, 50}
 
 	if IndexOf(nums, 30) != 2 {
-		t.Error("Expected index 2 for 30")
+		t.Error("30 期望索引 2")
 	}
 	if IndexOf(nums, 99) != -1 {
-		t.Error("Expected -1 for 99")
+		t.Error("99 期望 -1")
 	}
 }
 
@@ -570,7 +573,7 @@ func TestLastIndexOf(t *testing.T) {
 	nums := []int{1, 2, 3, 2, 1}
 
 	if LastIndexOf(nums, 2) != 3 {
-		t.Error("Expected last index 3 for 2")
+		t.Error("2 期望最后索引 3")
 	}
 }
 
@@ -584,13 +587,13 @@ func TestShuffle(t *testing.T) {
 
 	// 验证长度相同
 	if len(result) != len(nums) {
-		t.Errorf("Expected same length, got %d", len(result))
+		t.Errorf("期望相同长度，实际得到 %d", len(result))
 	}
 
 	// 验证原数组未被修改
 	for i, v := range nums {
 		if v != original[i] {
-			t.Error("Original array was modified")
+			t.Error("原数组被修改")
 			break
 		}
 	}
@@ -604,7 +607,7 @@ func TestReverseFunction(t *testing.T) {
 	expected := []int{5, 4, 3, 2, 1}
 	for i, v := range result {
 		if v != expected[i] {
-			t.Errorf("Index %d: expected %d, got %d", i, expected[i], v)
+			t.Errorf("索引 %d: 期望 %d，实际得到 %d", i, expected[i], v)
 		}
 	}
 }
@@ -612,15 +615,15 @@ func TestReverseFunction(t *testing.T) {
 // TestMinMax 测试最小最大值
 func TestMinMax(t *testing.T) {
 	if Min(3, 1, 4, 1, 5) != 1 {
-		t.Error("Min failed")
+		t.Error("Min 失败")
 	}
 	if Max(3, 1, 4, 1, 5) != 5 {
-		t.Error("Max failed")
+		t.Error("Max 失败")
 	}
 
 	// 空切片返回零值
 	if Min[int]() != 0 {
-		t.Error("Empty Min should return 0")
+		t.Error("空 Min 应该返回 0")
 	}
 }
 
@@ -630,13 +633,13 @@ func TestSumFunction(t *testing.T) {
 	result := Sum(nums)
 
 	if result != 15 {
-		t.Errorf("Expected 15, got %d", result)
+		t.Errorf("期望 15，实际得到 %d", result)
 	}
 
 	floats := []float64{1.5, 2.5, 3.0}
 	resultFloat := Sum(floats)
 	if resultFloat != 7.0 {
-		t.Errorf("Expected 7.0, got %f", resultFloat)
+		t.Errorf("期望 7.0，实际得到 %f", resultFloat)
 	}
 }
 
@@ -646,26 +649,26 @@ func TestEverySomeNone(t *testing.T) {
 
 	// Every: 所有元素都在 list 中
 	if !Every(list, []int{1, 3, 5}) {
-		t.Error("Every failed")
+		t.Error("Every 失败")
 	}
 	if Every(list, []int{1, 6}) {
-		t.Error("Every should return false for 6")
+		t.Error("Every 对于 6 应该返回 false")
 	}
 
 	// Some: 至少一个元素在 list 中
 	if !Some(list, []int{5, 6, 7}) {
-		t.Error("Some failed")
+		t.Error("Some 失败")
 	}
 	if Some(list, []int{6, 7, 8}) {
-		t.Error("Some should return false")
+		t.Error("Some 应该返回 false")
 	}
 
 	// None: 没有元素在 list 中
 	if !None(list, []int{6, 7, 8}) {
-		t.Error("None failed")
+		t.Error("None 失败")
 	}
 	if None(list, []int{5, 6, 7}) {
-		t.Error("None should return false for 5")
+		t.Error("None 对于 5 应该返回 false")
 	}
 }
 
@@ -688,10 +691,10 @@ func TestDifference(t *testing.T) {
 	left, right := Difference(list1, list2)
 
 	if len(left) != 2 || left[0] != 1 || left[1] != 2 {
-		t.Errorf("Left difference failed: %v", left)
+		t.Errorf("左差集失败: %v", left)
 	}
 	if len(right) != 2 || right[0] != 6 || right[1] != 7 {
-		t.Errorf("Right difference failed: %v", right)
+		t.Errorf("右差集失败: %v", right)
 	}
 }
 
@@ -735,13 +738,13 @@ func TestRand(t *testing.T) {
 	result := Rand(nums, 3)
 
 	if len(result) != 3 {
-		t.Errorf("Expected 3 items, got %d", len(result))
+		t.Errorf("期望 3 个元素，实际得到 %d", len(result))
 	}
 
 	// 验证结果都在原数组中
 	for _, v := range result {
 		if !Contains(nums, v) {
-			t.Errorf("Unexpected value: %d", v)
+			t.Errorf("意外的值: %d", v)
 		}
 	}
 }
@@ -753,43 +756,43 @@ func TestRand(t *testing.T) {
 // TestDefault 测试默认值
 func TestDefault(t *testing.T) {
 	if Default(0, 42) != 42 {
-		t.Error("Default should return 42 for 0")
+		t.Error("Default 对于 0 应该返回 42")
 	}
 	if Default(10, 42) != 10 {
-		t.Error("Default should return 10 for non-zero")
+		t.Error("Default 对于非零值应该返回 10")
 	}
 	if Default("", "default") != "default" {
-		t.Error("Default should return 'default' for empty string")
+		t.Error("Default 对于空字符串应该返回 'default'")
 	}
 }
 
 // TestEmpty 测试获取零值
 func TestEmpty(t *testing.T) {
 	if Empty[int]() != 0 {
-		t.Error("Empty[int] should be 0")
+		t.Error("Empty[int] 应该是 0")
 	}
 	if Empty[string]() != "" {
-		t.Error("Empty[string] should be ''")
+		t.Error("Empty[string] 应该是 ''")
 	}
 }
 
 // TestIsEmptyIsNotEmpty 测试空值判断
 func TestIsEmptyIsNotEmpty(t *testing.T) {
 	if !IsEmpty(0) {
-		t.Error("IsEmpty(0) should be true")
+		t.Error("IsEmpty(0) 应该是 true")
 	}
 	if !IsEmpty("") {
-		t.Error("IsEmpty('') should be true")
+		t.Error("IsEmpty('') 应该是 true")
 	}
 	if IsEmpty(1) {
-		t.Error("IsEmpty(1) should be false")
+		t.Error("IsEmpty(1) 应该是 false")
 	}
 
 	if IsNotEmpty(0) {
-		t.Error("IsNotEmpty(0) should be false")
+		t.Error("IsNotEmpty(0) 应该是 false")
 	}
 	if !IsNotEmpty(1) {
-		t.Error("IsNotEmpty(1) should be true")
+		t.Error("IsNotEmpty(1) 应该是 true")
 	}
 }
 
@@ -798,19 +801,19 @@ func TestTry(t *testing.T) {
 	// 成功的情况
 	success := Try(func() error { return nil })
 	if !success {
-		t.Error("Try should return true for success")
+		t.Error("Try 成功时应该返回 true")
 	}
 
 	// 失败的情况
 	failure := Try(func() error { return fmt.Errorf("error") })
 	if failure {
-		t.Error("Try should return false for error")
+		t.Error("Try 错误时应该返回 false")
 	}
 
 	// Panic 的情况
 	panicCase := Try(func() error { panic("panic") })
 	if panicCase {
-		t.Error("Try should return false for panic")
+		t.Error("Try panic 时应该返回 false")
 	}
 }
 
@@ -824,20 +827,20 @@ func TestTryCatch(t *testing.T) {
 	})
 
 	if !caught {
-		t.Error("Catch function should be called")
+		t.Error("应该调用 Catch 函数")
 	}
 }
 
 // TestIF 测试三目运算
 func TestIF(t *testing.T) {
 	if IF(true, "yes", "no") != "yes" {
-		t.Error("IF(true) should return 'yes'")
+		t.Error("IF(true) 应该返回 'yes'")
 	}
 	if IF(false, "yes", "no") != "no" {
-		t.Error("IF(false) should return 'no'")
+		t.Error("IF(false) 应该返回 'no'")
 	}
 	if IF(1 > 0, 100, 200) != 100 {
-		t.Error("IF(1>0) should return 100")
+		t.Error("IF(1>0) 应该返回 100")
 	}
 }
 
@@ -853,7 +856,7 @@ func TestExceptComparable(t *testing.T) {
 
 	expected := []int{1, 2}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -865,7 +868,7 @@ func TestIntersectComparable(t *testing.T) {
 
 	expected := []int{3, 4, 5}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -883,7 +886,7 @@ func TestExceptBy(t *testing.T) {
 
 	// 只有 ID=1 不在 items2 中
 	if len(result) != 1 || result[0] != 1 {
-		t.Errorf("Expected [1], got %v", result)
+		t.Errorf("期望 [1]，实际得到 %v", result)
 	}
 }
 
@@ -901,7 +904,7 @@ func TestIntersectBy(t *testing.T) {
 
 	// ID=2 和 ID=3 在两个集合中都存在
 	if len(result) != 2 {
-		t.Errorf("Expected 2 items, got %d: %v", len(result), result)
+		t.Errorf("期望 2 个元素，实际得到 %d: %v", len(result), result)
 	}
 }
 
@@ -911,7 +914,7 @@ func TestSkipMoreThanLength(t *testing.T) {
 	result := From(nums).Skip(10).ToSlice()
 
 	if len(result) != 0 {
-		t.Errorf("Expected empty slice, got %d items", len(result))
+		t.Errorf("期望空切片，实际得到 %d 个元素", len(result))
 	}
 }
 
@@ -921,7 +924,7 @@ func TestTakeMoreThanLength(t *testing.T) {
 	result := From(nums).Take(10).ToSlice()
 
 	if len(result) != 3 {
-		t.Errorf("Expected 3 items, got %d", len(result))
+		t.Errorf("期望 3 个元素，实际得到 %d", len(result))
 	}
 }
 
@@ -931,7 +934,7 @@ func TestAnyWithNoMatch(t *testing.T) {
 	result := From(nums).AnyWith(func(i int) bool { return i%2 == 0 })
 
 	if result {
-		t.Error("Expected false, no even numbers")
+		t.Error("期望 false，没有偶数")
 	}
 }
 
@@ -941,7 +944,7 @@ func TestFirstWithNoMatch(t *testing.T) {
 	result := From(nums).FirstWith(func(i int) bool { return i > 100 })
 
 	if result != 0 {
-		t.Errorf("Expected 0 for no match, got %d", result)
+		t.Errorf("无匹配时期望 0，实际得到 %d", result)
 	}
 }
 
@@ -955,7 +958,7 @@ func TestForEachEarlyExit(t *testing.T) {
 	})
 
 	if count != 3 {
-		t.Errorf("Expected 3 iterations, got %d", count)
+		t.Errorf("期望 3 次迭代，实际得到 %d", count)
 	}
 }
 
@@ -969,7 +972,7 @@ func TestForEachIndexedEarlyExit(t *testing.T) {
 	})
 
 	if lastIdx != 2 {
-		t.Errorf("Expected last index 2, got %d", lastIdx)
+		t.Errorf("期望最后索引 2，实际得到 %d", lastIdx)
 	}
 }
 
@@ -982,7 +985,7 @@ func TestUnionWithDuplicates(t *testing.T) {
 	// 应该去重
 	expected := []int{1, 2, 3, 4, 5}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -998,10 +1001,10 @@ func TestTryWithRetry(t *testing.T) {
 	}, 5) // 最多重试 5 次
 
 	if !success {
-		t.Error("Expected success after retries")
+		t.Error("期望重试后成功")
 	}
 	if attempts != 3 {
-		t.Errorf("Expected 3 attempts, got %d", attempts)
+		t.Errorf("期望 3 次尝试，实际得到 %d", attempts)
 	}
 }
 
@@ -1012,17 +1015,17 @@ func TestSumInt8To64(t *testing.T) {
 
 	sum8 := From(nums).SumInt8By(func(n Num) int8 { return int8(n.Val) })
 	if sum8 != 6 {
-		t.Errorf("SumInt8By: expected 6, got %d", sum8)
+		t.Errorf("SumInt8By: 期望 6，实际得到 %d", sum8)
 	}
 
 	sum16 := From(nums).SumInt16By(func(n Num) int16 { return int16(n.Val) })
 	if sum16 != 6 {
-		t.Errorf("SumInt16By: expected 6, got %d", sum16)
+		t.Errorf("SumInt16By: 期望 6，实际得到 %d", sum16)
 	}
 
 	sum32 := From(nums).SumInt32By(func(n Num) int32 { return int32(n.Val) })
 	if sum32 != 6 {
-		t.Errorf("SumInt32By: expected 6, got %d", sum32)
+		t.Errorf("SumInt32By: 期望 6，实际得到 %d", sum32)
 	}
 }
 
@@ -1033,27 +1036,27 @@ func TestSumUIntTypes(t *testing.T) {
 
 	sumU := From(nums).SumUIntBy(func(n Num) uint { return n.Val })
 	if sumU != 6 {
-		t.Errorf("SumUIntBy: expected 6, got %d", sumU)
+		t.Errorf("SumUIntBy: 期望 6，实际得到 %d", sumU)
 	}
 
 	sumU8 := From(nums).SumUInt8By(func(n Num) uint8 { return uint8(n.Val) })
 	if sumU8 != 6 {
-		t.Errorf("SumUInt8By: expected 6, got %d", sumU8)
+		t.Errorf("SumUInt8By: 期望 6，实际得到 %d", sumU8)
 	}
 
 	sumU16 := From(nums).SumUInt16By(func(n Num) uint16 { return uint16(n.Val) })
 	if sumU16 != 6 {
-		t.Errorf("SumUInt16By: expected 6, got %d", sumU16)
+		t.Errorf("SumUInt16By: 期望 6，实际得到 %d", sumU16)
 	}
 
 	sumU32 := From(nums).SumUInt32By(func(n Num) uint32 { return uint32(n.Val) })
 	if sumU32 != 6 {
-		t.Errorf("SumUInt32By: expected 6, got %d", sumU32)
+		t.Errorf("SumUInt32By: 期望 6，实际得到 %d", sumU32)
 	}
 
 	sumU64 := From(nums).SumUInt64By(func(n Num) uint64 { return uint64(n.Val) })
 	if sumU64 != 6 {
-		t.Errorf("SumUInt64By: expected 6, got %d", sumU64)
+		t.Errorf("SumUInt64By: 期望 6，实际得到 %d", sumU64)
 	}
 }
 
@@ -1064,6 +1067,97 @@ func TestSumFloat32(t *testing.T) {
 
 	sum := From(nums).SumFloat32By(func(n Num) float32 { return n.Val })
 	if sum != 7.0 {
-		t.Errorf("Expected 7.0, got %f", sum)
+		t.Errorf("期望 7.0，实际得到 %f", sum)
+	}
+}
+
+// TestSelectAsyncCtx 测试带 Context 的并发 Select
+func TestSelectAsyncCtx(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	count := 100
+	nums := Range(0, count)
+
+	// 我们只想要前 10 个
+	result := SelectAsyncCtx(ctx, nums, 5, func(i int) int {
+		return i * 2
+	}).Take(10).ToSlice()
+
+	// 显式取消，模拟提前退出
+	cancel()
+
+	if len(result) != 10 {
+		t.Errorf("期望 10 个元素，实际得到 %d", len(result))
+	}
+
+	// 验证结果内容
+	for i, v := range result {
+		if v%2 != 0 {
+			t.Errorf("索引 %d: 期望偶数，实际得到 %d", i, v)
+		}
+		if v < 0 || v >= count*2 {
+			t.Errorf("索引 %d: 值 %d 超出范围", i, v)
+		}
+	}
+
+	// 等待让 goroutine 退出
+	time.Sleep(50 * time.Millisecond)
+}
+
+// TestTakeWhile 测试 TakeWhile
+func TestTakeWhile(t *testing.T) {
+	nums := []int{1, 2, 3, 4, 1, 2}
+	result := From(nums).TakeWhile(func(i int) bool { return i < 4 }).ToSlice()
+
+	expected := []int{1, 2, 3}
+	if len(result) != len(expected) {
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("索引 %d: 期望 %d，实际得到 %d", i, expected[i], v)
+		}
+	}
+}
+
+// TestSkipWhile 测试 SkipWhile
+func TestSkipWhile(t *testing.T) {
+	nums := []int{1, 2, 3, 4, 1, 2}
+	result := From(nums).SkipWhile(func(i int) bool { return i < 3 }).ToSlice()
+
+	expected := []int{3, 4, 1, 2}
+	if len(result) != len(expected) {
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("索引 %d: 期望 %d，实际得到 %d", i, expected[i], v)
+		}
+	}
+}
+
+// TestForEachParallelCtx 测试 ForEachParallelCtx
+func TestForEachParallelCtx(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	nums := Range(0, 100)
+	var processed atomic.Int32
+
+	// 启动一个耗时的处理并在中途取消
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	nums.ForEachParallelCtx(ctx, 10, func(i int) {
+		time.Sleep(100 * time.Millisecond)
+		processed.Add(1)
+	})
+
+	// 应该只有一部分被处理（可能少于100），且不应该永久阻塞
+	if processed.Load() == 100 {
+		t.Error("期望少于 100 个元素被处理")
 	}
 }

@@ -4,10 +4,12 @@ import (
 	"sort"
 )
 
+// HasOrder 判断查询目前是否已定义排序规则
 func (q Query[T]) HasOrder() bool {
 	return q.lesser != nil
 }
 
+// OrderBy 指定主要排序键，按升序对序列元素进行排序
 func OrderBy[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 	return orderByLesser(q, func(data []T) func(i, j int) bool {
 		return func(i, j int) bool {
@@ -15,6 +17,8 @@ func OrderBy[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 		}
 	})
 }
+
+// OrderByDescending 指定主要排序键，按降序对序列元素进行排序
 func OrderByDescending[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 	return orderByLesser(q, func(data []T) func(i, j int) bool {
 		return func(i, j int) bool {
@@ -22,6 +26,9 @@ func OrderByDescending[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 		}
 	})
 }
+
+// ThenBy 指定次要排序键，按升序对序列元素进行后续排序
+// 必须在 OrderBy 或 OrderByDescending 之后调用
 func ThenBy[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 	lesser := q.lesser
 	return orderByLesser(q, chainLessers(lesser, func(data []T) func(i, j int) bool {
@@ -30,6 +37,9 @@ func ThenBy[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 		}
 	}))
 }
+
+// ThenByDescending 指定次要排序键，按降序对序列元素进行后续排序
+// 必须在 OrderBy 或 OrderByDescending 之后调用
 func ThenByDescending[T any, K Ordered](q Query[T], key func(t T) K) Query[T] {
 	lesser := q.lesser
 	return orderByLesser(q, chainLessers(lesser, func(data []T) func(i, j int) bool {

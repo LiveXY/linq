@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Helper to generate a large slice
+// 辅助函数：生成大切片
 func makeRange(min, max int) []int {
 	a := make([]int, max-min)
 	for i := range a {
@@ -14,6 +14,7 @@ func makeRange(min, max int) []int {
 	return a
 }
 
+// BenchmarkFromSlice 基准测试：从切片创建查询并还原
 func BenchmarkFromSlice(b *testing.B) {
 	data := makeRange(0, 10000)
 	b.ResetTimer()
@@ -22,6 +23,7 @@ func BenchmarkFromSlice(b *testing.B) {
 	}
 }
 
+// BenchmarkWhere 基准测试：过滤操作
 func BenchmarkWhere(b *testing.B) {
 	data := makeRange(0, 10000)
 	b.ResetTimer()
@@ -30,6 +32,7 @@ func BenchmarkWhere(b *testing.B) {
 	}
 }
 
+// BenchmarkSelect 基准测试：映射操作
 func BenchmarkSelect(b *testing.B) {
 	data := makeRange(0, 10000)
 	b.ResetTimer()
@@ -38,6 +41,7 @@ func BenchmarkSelect(b *testing.B) {
 	}
 }
 
+// BenchmarkMinBy 基准测试：按条件查找最小值
 func BenchmarkMinBy(b *testing.B) {
 	data := makeRange(0, 10000)
 	b.ResetTimer()
@@ -46,6 +50,7 @@ func BenchmarkMinBy(b *testing.B) {
 	}
 }
 
+// BenchmarkGroupBy 基准测试：分组操作
 func BenchmarkGroupBy(b *testing.B) {
 	data := makeRange(0, 10000)
 	b.ResetTimer()
@@ -54,8 +59,9 @@ func BenchmarkGroupBy(b *testing.B) {
 	}
 }
 
+// BenchmarkFromString 基准测试：从字符串创建查询
 func BenchmarkFromString(b *testing.B) {
-	// A string with mixed ASCII and Unicode
+	// 包含 ASCII 和 Unicode 的混合字符串
 	str := strings.Repeat("a", 1000) + strings.Repeat("世", 1000) + strings.Repeat("🌍", 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -63,6 +69,7 @@ func BenchmarkFromString(b *testing.B) {
 	}
 }
 
+// BenchmarkUnion 基准测试：集合并集
 func BenchmarkUnion(b *testing.B) {
 	data1 := makeRange(0, 1000)
 	data2 := makeRange(500, 1500)
@@ -72,9 +79,10 @@ func BenchmarkUnion(b *testing.B) {
 	}
 }
 
+// BenchmarkSort 基准测试：排序性能
 func BenchmarkSort(b *testing.B) {
 	data := makeRange(0, 1000)
-	// Just reverse it to give sort some work
+	// 简单反转以给排序增加工作量
 	for i := 0; i < len(data)/2; i++ {
 		data[i], data[len(data)-1-i] = data[len(data)-1-i], data[i]
 	}

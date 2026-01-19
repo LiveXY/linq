@@ -1,6 +1,7 @@
 package linq
 
 import (
+	"context"
 	crand "crypto/rand"
 	"math/big"
 	"math/rand/v2"
@@ -134,6 +135,55 @@ func (q Query[T]) Take(count int) Query[T] {
 					return
 				}
 				n--
+				return next()
+			}
+		},
+	}
+}
+
+// TakeWhile 获取满足条件的元素，直到遇到不满足条件的元素
+func (q Query[T]) TakeWhile(predicate func(T) bool) Query[T] {
+	return Query[T]{
+		iterate: func() func() (T, bool) {
+			next := q.iterate()
+			taking := true
+			return func() (item T, ok bool) {
+				if !taking {
+					return
+				}
+				item, ok = next()
+				if !ok {
+					taking = false
+					return
+				}
+				if !predicate(item) {
+					taking = false
+					ok = false
+					return
+				}
+				return item, true
+			}
+		},
+	}
+}
+
+// SkipWhile 跳过满足条件的元素，直到遇到不满足条件的元素
+func (q Query[T]) SkipWhile(predicate func(T) bool) Query[T] {
+	return Query[T]{
+		iterate: func() func() (T, bool) {
+			next := q.iterate()
+			skipping := true
+			return func() (item T, ok bool) {
+				for skipping {
+					item, ok = next()
+					if !ok {
+						return
+					}
+					if !predicate(item) {
+						skipping = false
+						return item, true
+					}
+				}
 				return next()
 			}
 		},
@@ -459,6 +509,60 @@ func (q Query[T]) ForEachParallel(workers int, action func(T)) {
 	wg.Wait()
 }
 
+// ForEachParallelCtx 并发遍历序列中的元素，支持 Context 取消
+func (q Query[T]) ForEachParallelCtx(ctx context.Context, workers int, action func(T)) {
+	if workers <= 1 {
+		q.ForEach(func(t T) bool {
+			select {
+			case <-ctx.Done():
+				return false
+			default:
+				action(t)
+				return true
+			}
+		})
+		return
+	}
+
+	ch := make(chan T, workers)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					_ = r
+				}
+			}()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case item, ok := <-ch:
+					if !ok {
+						return
+					}
+					action(item)
+				}
+			}
+		}()
+	}
+
+	next := q.iterate()
+Loop:
+	for item, ok := next(); ok; item, ok = next() {
+		select {
+		case <-ctx.Done():
+			break Loop
+		case ch <- item:
+		}
+	}
+	close(ch)
+	wg.Wait()
+}
+
 // Last 返回序列的最后一个元素
 func (q Query[T]) Last() (r T) {
 	next := q.iterate()
@@ -514,6 +618,8 @@ func (q Query[T]) Single() (r T) {
 	}
 	return item
 }
+
+// SumInt8By 计算序列中 int8 属性的总和
 func (q Query[T]) SumInt8By(selector func(T) int8) (r int8) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -521,6 +627,8 @@ func (q Query[T]) SumInt8By(selector func(T) int8) (r int8) {
 	}
 	return
 }
+
+// SumInt16By 计算序列中 int16 属性的总和
 func (q Query[T]) SumInt16By(selector func(T) int16) (r int16) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -528,6 +636,8 @@ func (q Query[T]) SumInt16By(selector func(T) int16) (r int16) {
 	}
 	return
 }
+
+// SumIntBy 计算序列中 int 属性的总和
 func (q Query[T]) SumIntBy(selector func(T) int) (r int) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -535,6 +645,8 @@ func (q Query[T]) SumIntBy(selector func(T) int) (r int) {
 	}
 	return
 }
+
+// SumInt32By 计算序列中 int32 属性的总和
 func (q Query[T]) SumInt32By(selector func(T) int32) (r int32) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -542,6 +654,8 @@ func (q Query[T]) SumInt32By(selector func(T) int32) (r int32) {
 	}
 	return
 }
+
+// SumInt64By 计算序列中 int64 属性的总和
 func (q Query[T]) SumInt64By(selector func(T) int64) (r int64) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -549,6 +663,8 @@ func (q Query[T]) SumInt64By(selector func(T) int64) (r int64) {
 	}
 	return
 }
+
+// SumUInt8By 计算序列中 uint8 属性的总和
 func (q Query[T]) SumUInt8By(selector func(T) uint8) (r uint8) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -556,6 +672,8 @@ func (q Query[T]) SumUInt8By(selector func(T) uint8) (r uint8) {
 	}
 	return
 }
+
+// SumUInt16By 计算序列中 uint16 属性的总和
 func (q Query[T]) SumUInt16By(selector func(T) uint16) (r uint16) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -563,6 +681,8 @@ func (q Query[T]) SumUInt16By(selector func(T) uint16) (r uint16) {
 	}
 	return
 }
+
+// SumUIntBy 计算序列中 uint 属性的总和
 func (q Query[T]) SumUIntBy(selector func(T) uint) (r uint) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -570,6 +690,8 @@ func (q Query[T]) SumUIntBy(selector func(T) uint) (r uint) {
 	}
 	return
 }
+
+// SumUInt32By 计算序列中 uint32 属性的总和
 func (q Query[T]) SumUInt32By(selector func(T) uint32) (r uint32) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -577,6 +699,8 @@ func (q Query[T]) SumUInt32By(selector func(T) uint32) (r uint32) {
 	}
 	return
 }
+
+// SumUInt64By 计算序列中 uint64 属性的总和
 func (q Query[T]) SumUInt64By(selector func(T) uint64) (r uint64) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -584,6 +708,8 @@ func (q Query[T]) SumUInt64By(selector func(T) uint64) (r uint64) {
 	}
 	return
 }
+
+// SumFloat32By 计算序列中 float32 属性的总和
 func (q Query[T]) SumFloat32By(selector func(T) float32) (r float32) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -591,6 +717,8 @@ func (q Query[T]) SumFloat32By(selector func(T) float32) (r float32) {
 	}
 	return
 }
+
+// SumFloat64By 计算序列中 float64 属性的总和
 func (q Query[T]) SumFloat64By(selector func(T) float64) (r float64) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -599,6 +727,7 @@ func (q Query[T]) SumFloat64By(selector func(T) float64) (r float64) {
 	return
 }
 
+// AvgIntBy 计算序列中 int 属性的平均值，空序列返回 0
 func (q Query[T]) AvgIntBy(selector func(T) int) float64 {
 	next := q.iterate()
 	var sum float64
@@ -612,6 +741,8 @@ func (q Query[T]) AvgIntBy(selector func(T) int) float64 {
 	}
 	return sum / float64(n)
 }
+
+// AvgInt64By 计算序列中 int64 属性的平均值，空序列返回 0
 func (q Query[T]) AvgInt64By(selector func(T) int64) float64 {
 	next := q.iterate()
 	var sum float64
@@ -625,6 +756,8 @@ func (q Query[T]) AvgInt64By(selector func(T) int64) float64 {
 	}
 	return sum / float64(n)
 }
+
+// AvgBy 计算序列中 float64 属性的平均值，空序列返回 0
 func (q Query[T]) AvgBy(selector func(T) float64) float64 {
 	next := q.iterate()
 	var sum float64
@@ -639,6 +772,7 @@ func (q Query[T]) AvgBy(selector func(T) float64) float64 {
 	return sum / float64(n)
 }
 
+// Count 返回序列中的元素数量
 func (q Query[T]) Count() (r int) {
 	next := q.iterate()
 	for _, ok := next(); ok; _, ok = next() {
@@ -646,6 +780,8 @@ func (q Query[T]) Count() (r int) {
 	}
 	return
 }
+
+// ToSlice 将序列转换为切片
 func (q Query[T]) ToSlice() (r []T) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -653,6 +789,8 @@ func (q Query[T]) ToSlice() (r []T) {
 	}
 	return
 }
+
+// AppendTo 将序列中的元素追加到指定的切片中
 func (q Query[T]) AppendTo(dest []T) []T {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -660,6 +798,8 @@ func (q Query[T]) AppendTo(dest []T) []T {
 	}
 	return dest
 }
+
+// ToChannel 将序列写入到指定的只写 Channel
 func (q Query[T]) ToChannel(c chan<- T) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -667,7 +807,9 @@ func (q Query[T]) ToChannel(c chan<- T) {
 	}
 	close(c)
 }
-func (q Query[T]) ToMap(selector func(T) map[string]any) (r []map[string]any) {
+
+// ToMapSlice 将序列转换为 []map[string]any，通常用于 JSON 序列化
+func (q Query[T]) ToMapSlice(selector func(T) map[string]any) (r []map[string]any) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		r = append(r, selector(item))
@@ -675,6 +817,7 @@ func (q Query[T]) ToMap(selector func(T) map[string]any) (r []map[string]any) {
 	return
 }
 
+// GroupBy 根据 keySelector 对序列进行分组
 func GroupBy[T any, K comparable](q Query[T], keySelector func(T) K) Query[KV[K, []T]] {
 	return Query[KV[K, []T]]{
 		iterate: func() func() (KV[K, []T], bool) {
@@ -702,6 +845,8 @@ func GroupBy[T any, K comparable](q Query[T], keySelector func(T) K) Query[KV[K,
 		},
 	}
 }
+
+// GroupBySelect 根据 keySelector 分组，并对元素应用 elementSelector
 func GroupBySelect[T any, K comparable, V any](q Query[T], keySelector func(T) K, elementSelector func(T) V) Query[KV[K, []V]] {
 	return Query[KV[K, []V]]{
 		iterate: func() func() (KV[K, []V], bool) {
@@ -729,6 +874,8 @@ func GroupBySelect[T any, K comparable, V any](q Query[T], keySelector func(T) K
 		},
 	}
 }
+
+// Select 将序列中的每个元素转换为新的形式
 func Select[T, V any](q Query[T], selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func() func() (V, bool) {
@@ -745,9 +892,9 @@ func Select[T, V any](q Query[T], selector func(T) V) Query[V] {
 	}
 }
 
-// SelectAsync performs the selector function concurrently.
-// Note: The order of elements in the result is NOT guaranteed to match the source.
-// WARNING: If you don't consume all results, use SelectAsyncCtx to avoid goroutine leaks.
+// SelectAsync 并发地转换序列中的每个元素
+// 注意：结果的顺序不能保证与源序列一致
+// 警告：如果不消费完所有结果，请使用 SelectAsyncCtx 以避免 goroutine 泄漏
 func SelectAsync[T, V any](q Query[T], workers int, selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func() func() (V, bool) {
@@ -804,6 +951,66 @@ func SelectAsync[T, V any](q Query[T], workers int, selector func(T) V) Query[V]
 		},
 	}
 }
+
+// SelectAsyncCtx 并发地转换序列中的每个元素，支持 Context 取消
+// 当 ctx 被取消时，后台 goroutine 会安全退出，避免泄漏
+func SelectAsyncCtx[T, V any](ctx context.Context, q Query[T], workers int, selector func(T) V) Query[V] {
+	return Query[V]{
+		iterate: func() func() (V, bool) {
+			next := q.iterate()
+			outCh := make(chan V, workers*2)
+
+			go func() {
+				defer close(outCh)
+				sem := make(chan struct{}, workers)
+				var wg sync.WaitGroup
+
+				for item, ok := next(); ok; item, ok = next() {
+					// 检查 context 是否已取消
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+
+					select {
+					case <-ctx.Done():
+						return
+					case sem <- struct{}{}:
+						wg.Add(1)
+						go func(it T) {
+							defer wg.Done()
+							defer func() {
+								<-sem
+								if r := recover(); r != nil {
+									_ = r
+								}
+							}()
+							result := selector(it)
+							select {
+							case <-ctx.Done():
+								return
+							case outCh <- result:
+							}
+						}(item)
+					}
+				}
+				wg.Wait()
+			}()
+
+			return func() (item V, ok bool) {
+				select {
+				case <-ctx.Done():
+					return
+				case item, ok = <-outCh:
+					return
+				}
+			}
+		},
+	}
+}
+
+// Filter 根据选择器返回的布尔值过滤元素，并转换类型
 func Filter[T, V any](q Query[T], selector func(T) (V, bool)) Query[V] {
 	return Query[V]{
 		iterate: func() func() (V, bool) {
@@ -821,6 +1028,9 @@ func Filter[T, V any](q Query[T], selector func(T) (V, bool)) Query[V] {
 		},
 	}
 }
+
+// Distinct 根据选择器返回的值对序列进行去重
+// Distinct[T, V] 对于 T 类型的序列，使用 selector(T) -> V 进行去重，返回 V 类型的序列
 func Distinct[T, V any](q Query[T], selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func() func() (V, bool) {
@@ -840,6 +1050,9 @@ func Distinct[T, V any](q Query[T], selector func(T) V) Query[V] {
 		},
 	}
 }
+
+// ExceptBy 根据选择器返回的值计算差集
+// 返回在第一个序列中但不在第二个序列中的元素（基于选择器返回值）
 func ExceptBy[T, V any](q Query[T], q2 Query[T], selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func() func() (V, bool) {
@@ -864,6 +1077,8 @@ func ExceptBy[T, V any](q Query[T], q2 Query[T], selector func(T) V) Query[V] {
 		},
 	}
 }
+
+// Range 生成一个整数序列
 func Range[T Integer](start, count T) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -882,6 +1097,8 @@ func Range[T Integer](start, count T) Query[T] {
 		},
 	}
 }
+
+// Repeat 生成包含同一个元素的序列
 func Repeat[T Ordered](value T, count int) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -898,6 +1115,8 @@ func Repeat[T Ordered](value T, count int) Query[T] {
 		},
 	}
 }
+
+// IntersectBy 根据选择器返回的值计算交集
 func IntersectBy[T, V any](q Query[T], q2 Query[T], selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func() func() (V, bool) {
@@ -923,6 +1142,8 @@ func IntersectBy[T, V any](q Query[T], q2 Query[T], selector func(T) V) Query[V]
 		},
 	}
 }
+
+// ToMap 将序列转换为 map，需要提供 Key 选择器
 func ToMap[T, K comparable](q Query[T], selector func(T) K) map[K]T {
 	ret := make(map[K]T)
 	next := q.iterate()
@@ -933,6 +1154,7 @@ func ToMap[T, K comparable](q Query[T], selector func(T) K) map[K]T {
 	return ret
 }
 
+// Uniq 返回去重后的切片
 func Uniq[T comparable](list []T) []T {
 	result := []T{}
 	seen := map[T]struct{}{}
@@ -945,6 +1167,8 @@ func Uniq[T comparable](list []T) []T {
 	}
 	return result
 }
+
+// Contains 判断切片是否包含指定元素
 func Contains[T comparable](list []T, element T) bool {
 	for _, item := range list {
 		if item == element {
@@ -953,6 +1177,8 @@ func Contains[T comparable](list []T, element T) bool {
 	}
 	return false
 }
+
+// IndexOf 返回元素在切片中的索引，未找到返回 -1
 func IndexOf[T comparable](list []T, element T) int {
 	for i, item := range list {
 		if item == element {
@@ -961,6 +1187,8 @@ func IndexOf[T comparable](list []T, element T) int {
 	}
 	return -1
 }
+
+// LastIndexOf 返回元素在切片中最后一次出现的索引，未找到返回 -1
 func LastIndexOf[T comparable](list []T, element T) int {
 	length := len(list)
 	for i := length - 1; i >= 0; i-- {
@@ -970,6 +1198,8 @@ func LastIndexOf[T comparable](list []T, element T) int {
 	}
 	return -1
 }
+
+// Shuffle 随机打乱切片中的元素，返回新切片，原切片不变
 func Shuffle[T any](list []T) []T {
 	result := make([]T, len(list))
 	copy(result, list)
@@ -978,6 +1208,8 @@ func Shuffle[T any](list []T) []T {
 	})
 	return result
 }
+
+// Reverse 反转切片中的元素，返回新切片，原切片不变
 func Reverse[T any](list []T) []T {
 	result := make([]T, len(list))
 	copy(result, list)
@@ -989,6 +1221,8 @@ func Reverse[T any](list []T) []T {
 	}
 	return result
 }
+
+// Min 返回切片中的最小值
 func Min[T Ordered](list ...T) T {
 	var min T
 	if len(list) == 0 {
@@ -1003,6 +1237,8 @@ func Min[T Ordered](list ...T) T {
 	}
 	return min
 }
+
+// Max 返回切片中的最大值
 func Max[T Ordered](list ...T) T {
 	var max T
 	if len(list) == 0 {
@@ -1017,6 +1253,8 @@ func Max[T Ordered](list ...T) T {
 	}
 	return max
 }
+
+// MinBy 根据选择器返回的值计算最小值
 func MinBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
 	next := q.iterate()
 	first := true
@@ -1031,6 +1269,8 @@ func MinBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
 	}
 	return
 }
+
+// MaxBy 根据选择器返回的值计算最大值
 func MaxBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
 	next := q.iterate()
 	first := true
@@ -1045,6 +1285,8 @@ func MaxBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
 	}
 	return
 }
+
+// SumBy 根据选择器返回的值计算总和
 func SumBy[T any, V Integer | Float | Complex](q Query[T], selector func(T) V) (r V) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -1052,6 +1294,8 @@ func SumBy[T any, V Integer | Float | Complex](q Query[T], selector func(T) V) (
 	}
 	return
 }
+
+// AvgBy 计算平均值，兼容所有类型
 func AvgBy[T any](q Query[T], selector func(T) float64) float64 {
 	next := q.iterate()
 	var sum float64
@@ -1066,6 +1310,7 @@ func AvgBy[T any](q Query[T], selector func(T) float64) float64 {
 	return sum / float64(n)
 }
 
+// Sum 计算切片中所有元素的总和
 func Sum[T Float | Integer | Complex](list []T) T {
 	var sum T = 0
 	for _, val := range list {
@@ -1074,6 +1319,7 @@ func Sum[T Float | Integer | Complex](list []T) T {
 	return sum
 }
 
+// Every 判断 list 中的所有元素是否都存在于 subset 中
 func Every[T comparable](list []T, subset []T) bool {
 	seen := make(map[T]struct{}, len(list))
 	for _, elem := range list {
@@ -1086,6 +1332,8 @@ func Every[T comparable](list []T, subset []T) bool {
 	}
 	return true
 }
+
+// Some 判断 subset 中是否至少有一个元素存在于 list 中
 func Some[T comparable](list []T, subset []T) bool {
 	seen := make(map[T]struct{}, len(list))
 	for _, elem := range list {
@@ -1098,6 +1346,8 @@ func Some[T comparable](list []T, subset []T) bool {
 	}
 	return false
 }
+
+// None 判断 subset 中的所有元素是否都不存在于 list 中
 func None[T comparable](list []T, subset []T) bool {
 	seen := make(map[T]struct{}, len(list))
 	for _, elem := range list {
@@ -1110,6 +1360,8 @@ func None[T comparable](list []T, subset []T) bool {
 	}
 	return true
 }
+
+// Intersect 返回两个切片的交集
 func Intersect[T comparable](list1 []T, list2 []T) []T {
 	result := []T{}
 	seen := map[T]struct{}{}
@@ -1123,6 +1375,8 @@ func Intersect[T comparable](list1 []T, list2 []T) []T {
 	}
 	return result
 }
+
+// Difference 计算两个切片的差异，返回 (list1-list2, list2-list1)
 func Difference[T comparable](list1 []T, list2 []T) ([]T, []T) {
 	left := []T{}
 	right := []T{}
@@ -1146,6 +1400,8 @@ func Difference[T comparable](list1 []T, list2 []T) ([]T, []T) {
 	}
 	return left, right
 }
+
+// Union 返回两个切片的并集，自动去重
 func Union[T comparable](list1 []T, list2 []T) []T {
 	result := make([]T, 0, len(list1)+len(list2))
 	seen := make(map[T]struct{})
@@ -1163,6 +1419,8 @@ func Union[T comparable](list1 []T, list2 []T) []T {
 	}
 	return result
 }
+
+// Without 从切片中移除指定的元素
 func Without[T comparable](list []T, exclude ...T) []T {
 	excludeSet := make(map[T]struct{}, len(exclude))
 	for _, e := range exclude {
@@ -1176,6 +1434,8 @@ func Without[T comparable](list []T, exclude ...T) []T {
 	}
 	return result
 }
+
+// NoEmpty 移除切片中的空值（零值）
 func NoEmpty[T comparable](list []T) []T {
 	var empty T
 	result := make([]T, 0, len(list))
@@ -1186,6 +1446,8 @@ func NoEmpty[T comparable](list []T) []T {
 	}
 	return result
 }
+
+// GtZero 移除切片中不大于 0 的值
 func GtZero[T Float | Integer](list []T) []T {
 	result := make([]T, 0, len(list))
 	for _, e := range list {
@@ -1203,6 +1465,8 @@ func cryptoRandIntn(n int) int {
 	}
 	return int(i.Int64())
 }
+
+// Rand 随机从切片中选取 count 个元素
 func Rand[T any](list []T, count int) []T {
 	size := len(list)
 	templist := append([]T{}, list...)
@@ -1216,20 +1480,28 @@ func Rand[T any](list []T, count int) []T {
 	}
 	return results
 }
+
+// Default 如果值为空（零值），返回默认值
 func Default[T comparable](v, d T) T {
 	if IsEmpty(v) {
 		return d
 	}
 	return v
 }
+
+// Empty 返回类型的零值
 func Empty[T any]() T {
 	var zero T
 	return zero
 }
+
+// IsEmpty 判断值是否为空（零值）
 func IsEmpty[T comparable](v T) bool {
 	var zero T
 	return zero == v
 }
+
+// IsNotEmpty 判断值是否不为空（非零值）
 func IsNotEmpty[T comparable](v T) bool {
 	var zero T
 	return zero != v
@@ -1247,6 +1519,8 @@ func try(callback func() error) (ok bool) {
 	}
 	return
 }
+
+// Try 尝试执行函数，支持重试和延迟
 func Try(callback func() error, nums ...int) bool {
 	num, second := 1, 0
 	if len(nums) > 0 {
@@ -1267,13 +1541,15 @@ func Try(callback func() error, nums ...int) bool {
 	}
 	return false
 }
+
+// TryCatch 尝试执行函数，如果 panic 则执行 catch 函数
 func TryCatch(callback func() error, catch func()) {
 	if !try(callback) {
 		catch()
 	}
 }
 
-// 三目运算int
+// IF 三目运算
 func IF[T any](cond bool, suc, fail T) T {
 	if cond {
 		return suc
