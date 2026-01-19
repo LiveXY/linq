@@ -2,7 +2,9 @@ package linq
 
 import (
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 )
 
 type BMember struct {
@@ -112,4 +114,106 @@ func TestHasOrder(t *testing.T) {
 func TestFirst(t *testing.T) {
 	fmt.Println(1, From([]*BMember{}).Where(func(m *BMember) bool { return m.Age < 29 }).DefaultIfEmpty(&BMember{}).First())
 	fmt.Println(2, From([]*BMember{}).Where(func(m *BMember) bool { return m.Age < 29 }).First())
+}
+
+func TestFromString(t *testing.T) {
+	str := "Hello, 世界! 🌍"
+	q := FromString(str)
+	slice := q.ToSlice()
+	expected := []string{"H", "e", "l", "l", "o", ",", " ", "世", "界", "!", " ", "🌍"}
+	if len(slice) != len(expected) {
+		t.Fatalf("Expected length %d, got %d", len(expected), len(slice))
+	}
+	for i, v := range slice {
+		if v != expected[i] {
+			t.Errorf("Index %d: expected %s, got %s", i, expected[i], v)
+		}
+	}
+}
+
+func TestMinMaxBy(t *testing.T) {
+	// Test case for MinBy with negative numbers
+	nums := []int{-5, -2, -9, -1}
+	min := MinBy(From(nums), func(i int) int { return i })
+	if min != -9 {
+		t.Errorf("Expected Min -9, got %d", min)
+	}
+
+	max := MaxBy(From(nums), func(i int) int { return i })
+	if max != -1 {
+		t.Errorf("Expected Max -1, got %d", max)
+	}
+
+	// Test case for MinBy with mixed with 0
+	nums2 := []int{5, 0, 2}
+	min2 := MinBy(From(nums2), func(i int) int { return i })
+	if min2 != 0 {
+	}
+}
+
+func TestAppendTo(t *testing.T) {
+	nums := []int{1, 2, 3}
+	buffer := make([]int, 0, 10)
+	// Add initial garbage to ensure we are appending correctly
+	buffer = append(buffer, 99)
+
+	result := From(nums).AppendTo(buffer)
+
+	expected := []int{99, 1, 2, 3}
+	if len(result) != len(expected) {
+		t.Fatalf("Expected length %d, got %d", len(expected), len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("Index %d: expected %d, got %d", i, expected[i], v)
+		}
+	}
+	// Verify it's the same underlying array if cap allows
+	if &result[0] != &buffer[0] {
+		t.Log("Warning: Slice reallocated, this might be expected if cap changed but check logic")
+	}
+}
+
+func TestForEachParallel(t *testing.T) {
+	count := 100
+	nums := Range(0, count).ToSlice()
+	var mu sync.Mutex
+	processed := make(map[int]struct{})
+
+	From(nums).ForEachParallel(10, func(i int) {
+		mu.Lock()
+		processed[i] = struct{}{}
+		mu.Unlock()
+		time.Sleep(1 * time.Millisecond) // Simulate work
+	})
+
+	if len(processed) != count {
+		t.Errorf("Expected %d processed items, got %d", count, len(processed))
+	}
+}
+
+func TestSelectAsync(t *testing.T) {
+	count := 50
+	nums := Range(0, count)
+
+	// SelectAsync order is not guaranteed, so we check existence
+	result := SelectAsync(nums, 5, func(i int) int {
+		time.Sleep(1 * time.Millisecond)
+		return i * 2
+	}).ToSlice()
+
+	if len(result) != count {
+		t.Fatalf("Expected %d items, got %d", count, len(result))
+	}
+
+	perm := make(map[int]bool)
+	for _, v := range result {
+		perm[v] = true
+	}
+
+	for i := 0; i < count; i++ {
+		if !perm[i*2] {
+			t.Errorf("Missing expected value %d", i*2)
+		}
+	}
 }

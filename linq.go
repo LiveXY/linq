@@ -4,7 +4,9 @@ import (
 	crand "crypto/rand"
 	"math/big"
 	"math/rand/v2"
+	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 type lesserFunc[T any] func([]T) func(i, j int) bool
@@ -46,17 +48,22 @@ func FromChannel[T any](source <-chan T) Query[T] {
 	}
 }
 func FromString(source string) Query[string] {
-	runes := []rune(source)
-	len := len(runes)
 	return Query[string]{
 		iterate: func() func() (string, bool) {
-			index := 0
+			pos := 0
+			length := len(source)
 			return func() (item string, ok bool) {
-				ok = index < len
-				if ok {
-					item = string(runes[index])
-					index++
+				if pos >= length {
+					return
 				}
+				r, w := utf8.DecodeRuneInString(source[pos:])
+				if r == utf8.RuneError && w == 1 {
+					item = string(r)
+				} else {
+					item = source[pos : pos+w]
+				}
+				pos += w
+				ok = true
 				return
 			}
 		},
@@ -363,6 +370,35 @@ func (q Query[T]) ForEachIndexed(action func(int, T) bool) {
 		index++
 	}
 }
+func (q Query[T]) ForEachParallel(workers int, action func(T)) {
+	if workers <= 1 {
+		q.ForEach(func(t T) bool {
+			action(t)
+			return true
+		})
+		return
+	}
+
+	ch := make(chan T, workers)
+	var wg sync.WaitGroup // Requires "sync"
+	wg.Add(workers)
+
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			for item := range ch {
+				action(item)
+			}
+		}()
+	}
+
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		ch <- item
+	}
+	close(ch)
+	wg.Wait()
+}
 func (q Query[T]) Last() (r T) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -541,6 +577,13 @@ func (q Query[T]) ToSlice() (r []T) {
 	}
 	return
 }
+func (q Query[T]) AppendTo(dest []T) []T {
+	next := q.iterate()
+	for item, ok := next(); ok; item, ok = next() {
+		dest = append(dest, item)
+	}
+	return dest
+}
 func (q Query[T]) ToChannel(c chan<- T) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -561,22 +604,21 @@ func GroupBy[T any, K comparable](q Query[T], keySelector func(T) K) Query[KV[K,
 		iterate: func() func() (KV[K, []T], bool) {
 			next := q.iterate()
 			set := make(map[K][]T)
+			var keys []K
 			for item, ok := next(); ok; item, ok = next() {
 				key := keySelector(item)
+				if _, ok := set[key]; !ok {
+					keys = append(keys, key)
+				}
 				set[key] = append(set[key], item)
 			}
-			len := len(set)
-			idx := 0
-			groups := make([](KV[K, []T]), len)
-			for k, v := range set {
-				groups[idx] = KV[K, []T]{k, v}
-				idx++
-			}
+			len := len(keys)
 			index := 0
 			return func() (item KV[K, []T], ok bool) {
 				ok = index < len
 				if ok {
-					item = groups[index]
+					key := keys[index]
+					item = KV[K, []T]{key, set[key]}
 					index++
 				}
 				return
@@ -589,22 +631,21 @@ func GroupBySelect[T any, K comparable, V any](q Query[T], keySelector func(T) K
 		iterate: func() func() (KV[K, []V], bool) {
 			next := q.iterate()
 			set := make(map[K][]V)
+			var keys []K
 			for item, ok := next(); ok; item, ok = next() {
 				key := keySelector(item)
+				if _, ok := set[key]; !ok {
+					keys = append(keys, key)
+				}
 				set[key] = append(set[key], elementSelector(item))
 			}
-			len := len(set)
-			idx := 0
-			groups := make([](KV[K, []V]), len)
-			for k, v := range set {
-				groups[idx] = KV[K, []V]{k, v}
-				idx++
-			}
+			len := len(keys)
 			index := 0
 			return func() (item KV[K, []V], ok bool) {
 				ok = index < len
 				if ok {
-					item = groups[index]
+					key := keys[index]
+					item = KV[K, []V]{key, set[key]}
 					index++
 				}
 				return
@@ -622,6 +663,39 @@ func Select[T, V any](q Query[T], selector func(T) V) Query[V] {
 				if ok {
 					item = selector(it)
 				}
+				return
+			}
+		},
+	}
+}
+
+// SelectAsync performs the selector function concurrently.
+// Note: The order of elements in the result is NOT guaranteed to match the source.
+func SelectAsync[T, V any](q Query[T], workers int, selector func(T) V) Query[V] {
+	return Query[V]{
+		iterate: func() func() (V, bool) {
+			next := q.iterate()
+			outCh := make(chan V, workers)
+
+			go func() {
+				defer close(outCh)
+				sem := make(chan struct{}, workers)
+				var wg sync.WaitGroup
+
+				for item, ok := next(); ok; item, ok = next() {
+					sem <- struct{}{}
+					wg.Add(1)
+					go func(it T) {
+						defer wg.Done()
+						defer func() { <-sem }()
+						outCh <- selector(it)
+					}(item)
+				}
+				wg.Wait()
+			}()
+
+			return func() (item V, ok bool) {
+				item, ok = <-outCh
 				return
 			}
 		},
@@ -790,19 +864,23 @@ func LastIndexOf[T comparable](list []T, element T) int {
 	return -1
 }
 func Shuffle[T any](list []T) []T {
-	rand.Shuffle(len(list), func(i, j int) {
-		list[i], list[j] = list[j], list[i]
+	result := make([]T, len(list))
+	copy(result, list)
+	rand.Shuffle(len(result), func(i, j int) {
+		result[i], result[j] = result[j], result[i]
 	})
-	return list
+	return result
 }
 func Reverse[T any](list []T) []T {
-	length := len(list)
+	result := make([]T, len(list))
+	copy(result, list)
+	length := len(result)
 	half := length / 2
-	for i := 0; i < half; i = i + 1 {
+	for i := 0; i < half; i++ {
 		j := length - 1 - i
-		list[i], list[j] = list[j], list[i]
+		result[i], result[j] = result[j], result[i]
 	}
-	return list
+	return result
 }
 func Min[T Ordered](list ...T) T {
 	var min T
@@ -834,28 +912,28 @@ func Max[T Ordered](list ...T) T {
 }
 func MinBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
 	next := q.iterate()
+	first := true
 	for item, ok := next(); ok; item, ok = next() {
 		n := selector(item)
-		if r > n {
+		if first {
 			r = n
-		} else {
-			if r == 0 && n != r {
-				r = n
-			}
+			first = false
+		} else if n < r {
+			r = n
 		}
 	}
 	return
 }
 func MaxBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
 	next := q.iterate()
+	first := true
 	for item, ok := next(); ok; item, ok = next() {
 		n := selector(item)
-		if r < n {
+		if first {
 			r = n
-		} else {
-			if r == 0 && n != r {
-				r = n
-			}
+			first = false
+		} else if n > r {
+			r = n
 		}
 	}
 	return
@@ -887,24 +965,36 @@ func Sum[T Float | Integer | Complex](list []T) T {
 }
 
 func Every[T comparable](list []T, subset []T) bool {
+	seen := make(map[T]struct{}, len(list))
+	for _, elem := range list {
+		seen[elem] = struct{}{}
+	}
 	for _, elem := range subset {
-		if !Contains(list, elem) {
+		if _, ok := seen[elem]; !ok {
 			return false
 		}
 	}
 	return true
 }
 func Some[T comparable](list []T, subset []T) bool {
+	seen := make(map[T]struct{}, len(list))
+	for _, elem := range list {
+		seen[elem] = struct{}{}
+	}
 	for _, elem := range subset {
-		if Contains(list, elem) {
+		if _, ok := seen[elem]; ok {
 			return true
 		}
 	}
 	return false
 }
 func None[T comparable](list []T, subset []T) bool {
+	seen := make(map[T]struct{}, len(list))
+	for _, elem := range list {
+		seen[elem] = struct{}{}
+	}
 	for _, elem := range subset {
-		if Contains(list, elem) {
+		if _, ok := seen[elem]; ok {
 			return false
 		}
 	}
@@ -947,26 +1037,17 @@ func Difference[T comparable](list1 []T, list2 []T) ([]T, []T) {
 	return left, right
 }
 func Union[T comparable](list1 []T, list2 []T) []T {
-	result := []T{}
-	seen := map[T]struct{}{}
-	hasAdd := map[T]struct{}{}
+	result := make([]T, 0, len(list1)+len(list2))
+	seen := make(map[T]struct{})
 	for _, e := range list1 {
-		seen[e] = struct{}{}
-	}
-	for _, e := range list2 {
-		seen[e] = struct{}{}
-	}
-	for _, e := range list1 {
-		if _, ok := seen[e]; ok {
+		if _, ok := seen[e]; !ok {
+			seen[e] = struct{}{}
 			result = append(result, e)
-			hasAdd[e] = struct{}{}
 		}
 	}
 	for _, e := range list2 {
-		if _, ok := hasAdd[e]; ok {
-			continue
-		}
-		if _, ok := seen[e]; ok {
+		if _, ok := seen[e]; !ok {
+			seen[e] = struct{}{}
 			result = append(result, e)
 		}
 	}
