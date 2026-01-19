@@ -1,6 +1,7 @@
 package linq
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -169,4 +170,62 @@ func TestConcurrentBufferPool(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// 测试空集合的 Avg 不会返回 NaN
+func TestAvgEmptySlice(t *testing.T) {
+	empty := []int{}
+	avg := From(empty).AvgIntBy(func(i int) int { return i })
+	if avg != 0 {
+		t.Errorf("Expected 0 for empty slice, got %f", avg)
+	}
+
+	avg64 := From(empty).AvgInt64By(func(i int) int64 { return int64(i) })
+	if avg64 != 0 {
+		t.Errorf("Expected 0 for empty slice, got %f", avg64)
+	}
+
+	avgFloat := From(empty).AvgBy(func(i int) float64 { return float64(i) })
+	if avgFloat != 0 {
+		t.Errorf("Expected 0 for empty slice, got %f", avgFloat)
+	}
+}
+
+// 测试 Filter 正确过滤多个元素
+func TestFilterMultiple(t *testing.T) {
+	nums := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+	// 只保留偶数并转换为字符串
+	result := Filter(From(nums), func(i int) (string, bool) {
+		if i%2 == 0 {
+			return fmt.Sprintf("%d", i), true
+		}
+		return "", false
+	}).ToSlice()
+
+	expected := []string{"2", "4", "6", "8", "10"}
+	if len(result) != len(expected) {
+		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("Index %d: expected %s, got %s", i, expected[i], v)
+		}
+	}
+}
+
+// 测试 Without 性能优化后的正确性
+func TestWithoutOptimized(t *testing.T) {
+	list := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	result := Without(list, 2, 4, 6, 8, 10)
+
+	expected := []int{1, 3, 5, 7, 9}
+	if len(result) != len(expected) {
+		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Errorf("Index %d: expected %d, got %d", i, expected[i], v)
+		}
+	}
 }

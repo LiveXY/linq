@@ -11,16 +11,19 @@ import (
 
 type lesserFunc[T any] func([]T) func(i, j int) bool
 
+// KV 键值对结构体，用于存储分组等操作的结果
 type KV[K comparable, V any] struct {
 	Key   K
 	Value V
 }
 
+// Query 查询结构体，是 LINQ 操作的核心类型
 type Query[T any] struct {
 	lesser  lesserFunc[T]
 	iterate func() func() (T, bool)
 }
 
+// From 从切片创建 Query 查询对象
 func From[T any](source []T) Query[T] {
 	len := len(source)
 	return Query[T]{
@@ -37,6 +40,8 @@ func From[T any](source []T) Query[T] {
 		},
 	}
 }
+
+// FromChannel 从只读 Channel 创建 Query 查询对象
 func FromChannel[T any](source <-chan T) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -47,6 +52,8 @@ func FromChannel[T any](source <-chan T) Query[T] {
 		},
 	}
 }
+
+// FromString 从字符串创建 Query 查询对象，每个元素为一个 UTF-8 字符
 func FromString(source string) Query[string] {
 	return Query[string]{
 		iterate: func() func() (string, bool) {
@@ -69,6 +76,8 @@ func FromString(source string) Query[string] {
 		},
 	}
 }
+
+// FromMap 从 Map 创建 Query 查询对象，每个元素为 KV 键值对
 func FromMap[K comparable, V any](source map[K]V) Query[KV[K, V]] {
 	len := len(source)
 	keyvalues := make([](KV[K, V]), 0, len)
@@ -78,6 +87,7 @@ func FromMap[K comparable, V any](source map[K]V) Query[KV[K, V]] {
 	return From(keyvalues)
 }
 
+// Where 返回满足指定条件的元素序列
 func (q Query[T]) Where(predicate func(T) bool) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -93,6 +103,8 @@ func (q Query[T]) Where(predicate func(T) bool) Query[T] {
 		},
 	}
 }
+
+// Skip 跳过前 N 个元素
 func (q Query[T]) Skip(count int) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -110,6 +122,8 @@ func (q Query[T]) Skip(count int) Query[T] {
 		},
 	}
 }
+
+// Take 获取前 N 个元素
 func (q Query[T]) Take(count int) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -125,9 +139,13 @@ func (q Query[T]) Take(count int) Query[T] {
 		},
 	}
 }
+
+// Page 分页查询，返回指定页码和页大小的元素
 func (q Query[T]) Page(page, pageSize int) Query[T] {
 	return q.Skip((page - 1) * pageSize).Take(pageSize)
 }
+
+// Union 返回两个序列的并集，自动去重
 func (q Query[T]) Union(q2 Query[T]) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -156,6 +174,8 @@ func (q Query[T]) Union(q2 Query[T]) Query[T] {
 		},
 	}
 }
+
+// Append 在序列末尾追加一个元素
 func (q Query[T]) Append(item T) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -176,6 +196,8 @@ func (q Query[T]) Append(item T) Query[T] {
 		},
 	}
 }
+
+// Concat 连接两个序列
 func (q Query[T]) Concat(q2 Query[T]) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -195,6 +217,8 @@ func (q Query[T]) Concat(q2 Query[T]) Query[T] {
 		},
 	}
 }
+
+// Prepend 在序列开头插入一个元素
 func (q Query[T]) Prepend(item T) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -210,6 +234,8 @@ func (q Query[T]) Prepend(item T) Query[T] {
 		},
 	}
 }
+
+// DefaultIfEmpty 如果序列为空，返回包含默认值的序列
 func (q Query[T]) DefaultIfEmpty(defaultValue T) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -238,6 +264,8 @@ func (q Query[T]) DefaultIfEmpty(defaultValue T) Query[T] {
 		},
 	}
 }
+
+// Distinct 返回去重后的序列
 func (q Query[T]) Distinct() Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -255,6 +283,8 @@ func (q Query[T]) Distinct() Query[T] {
 		},
 	}
 }
+
+// Except 返回差集，即在第一个序列中但不在第二个序列中的元素
 func (q Query[T]) Except(q2 Query[T]) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -275,6 +305,8 @@ func (q Query[T]) Except(q2 Query[T]) Query[T] {
 		},
 	}
 }
+
+// IndexOf 返回第一个满足条件的元素索引，未找到返回 -1
 func (q Query[T]) IndexOf(predicate func(T) bool) int {
 	index := 0
 	next := q.iterate()
@@ -286,6 +318,8 @@ func (q Query[T]) IndexOf(predicate func(T) bool) int {
 	}
 	return -1
 }
+
+// Intersect 返回交集，即同时存在于两个序列中的元素
 func (q Query[T]) Intersect(q2 Query[T]) Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -307,6 +341,8 @@ func (q Query[T]) Intersect(q2 Query[T]) Query[T] {
 		},
 	}
 }
+
+// All 判断是否所有元素都满足指定条件
 func (q Query[T]) All(predicate func(T) bool) bool {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -316,10 +352,14 @@ func (q Query[T]) All(predicate func(T) bool) bool {
 	}
 	return true
 }
+
+// Any 判断序列是否包含任何元素
 func (q Query[T]) Any() bool {
 	_, ok := q.iterate()()
 	return ok
 }
+
+// AnyWith 判断是否存在满足条件的元素
 func (q Query[T]) AnyWith(predicate func(T) bool) bool {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -329,6 +369,8 @@ func (q Query[T]) AnyWith(predicate func(T) bool) bool {
 	}
 	return false
 }
+
+// CountWith 返回满足条件的元素数量
 func (q Query[T]) CountWith(predicate func(T) bool) (r int) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -338,10 +380,14 @@ func (q Query[T]) CountWith(predicate func(T) bool) (r int) {
 	}
 	return
 }
+
+// First 返回序列的第一个元素
 func (q Query[T]) First() T {
 	item, _ := q.iterate()()
 	return item
 }
+
+// FirstWith 返回第一个满足条件的元素
 func (q Query[T]) FirstWith(predicate func(T) bool) T {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -352,6 +398,8 @@ func (q Query[T]) FirstWith(predicate func(T) bool) T {
 	var out T
 	return out
 }
+
+// ForEach 遍历序列中的每个元素，返回 false 可提前终止
 func (q Query[T]) ForEach(action func(T) bool) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -360,6 +408,8 @@ func (q Query[T]) ForEach(action func(T) bool) {
 		}
 	}
 }
+
+// ForEachIndexed 带索引遍历序列中的每个元素
 func (q Query[T]) ForEachIndexed(action func(int, T) bool) {
 	next := q.iterate()
 	index := 0
@@ -370,6 +420,8 @@ func (q Query[T]) ForEachIndexed(action func(int, T) bool) {
 		index++
 	}
 }
+
+// ForEachParallel 并发遍历序列中的元素，指定工作线程数
 func (q Query[T]) ForEachParallel(workers int, action func(T)) {
 	if workers <= 1 {
 		q.ForEach(func(t T) bool {
@@ -406,6 +458,8 @@ func (q Query[T]) ForEachParallel(workers int, action func(T)) {
 	close(ch)
 	wg.Wait()
 }
+
+// Last 返回序列的最后一个元素
 func (q Query[T]) Last() (r T) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -413,6 +467,8 @@ func (q Query[T]) Last() (r T) {
 	}
 	return
 }
+
+// LastWith 返回最后一个满足条件的元素
 func (q Query[T]) LastWith(predicate func(T) bool) (r T) {
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
@@ -422,6 +478,8 @@ func (q Query[T]) LastWith(predicate func(T) bool) (r T) {
 	}
 	return
 }
+
+// Reverse 返回反转后的序列
 func (q Query[T]) Reverse() Query[T] {
 	return Query[T]{
 		iterate: func() func() (T, bool) {
@@ -442,6 +500,8 @@ func (q Query[T]) Reverse() Query[T] {
 		},
 	}
 }
+
+// Single 返回序列中的唯一元素，如果序列为空或包含多个元素则返回零值
 func (q Query[T]) Single() (r T) {
 	next := q.iterate()
 	item, ok := next()
@@ -547,7 +607,10 @@ func (q Query[T]) AvgIntBy(selector func(T) int) float64 {
 		sum += float64(selector(item))
 		n++
 	}
-	return float64(sum) / float64(n)
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
 }
 func (q Query[T]) AvgInt64By(selector func(T) int64) float64 {
 	next := q.iterate()
@@ -557,7 +620,10 @@ func (q Query[T]) AvgInt64By(selector func(T) int64) float64 {
 		sum += float64(selector(item))
 		n++
 	}
-	return float64(sum) / float64(n)
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
 }
 func (q Query[T]) AvgBy(selector func(T) float64) float64 {
 	next := q.iterate()
@@ -567,7 +633,10 @@ func (q Query[T]) AvgBy(selector func(T) float64) float64 {
 		sum += selector(item)
 		n++
 	}
-	return float64(sum) / float64(n)
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
 }
 
 func (q Query[T]) Count() (r int) {
@@ -741,9 +810,11 @@ func Filter[T, V any](q Query[T], selector func(T) (V, bool)) Query[V] {
 			next := q.iterate()
 			return func() (item V, ok bool) {
 				var it T
-				it, ok = next()
-				if ok {
+				for it, ok = next(); ok; it, ok = next() {
 					item, ok = selector(it)
+					if ok {
+						return
+					}
 				}
 				return
 			}
@@ -784,6 +855,7 @@ func ExceptBy[T, V any](q Query[T], q2 Query[T], selector func(T) V) Query[V] {
 				for it, ok = next(); ok; it, ok = next() {
 					s := selector(it)
 					if _, has := set[s]; !has {
+						item = s
 						return
 					}
 				}
@@ -842,6 +914,7 @@ func IntersectBy[T, V any](q Query[T], q2 Query[T], selector func(T) V) Query[V]
 					s := selector(it)
 					if _, has := set[s]; has {
 						delete(set, s)
+						item = s
 						return
 					}
 				}
@@ -979,7 +1052,7 @@ func SumBy[T any, V Integer | Float | Complex](q Query[T], selector func(T) V) (
 	}
 	return
 }
-func AvgBy[T any, V Integer | Float | Complex](q Query[T], selector func(T) float64) float64 {
+func AvgBy[T any](q Query[T], selector func(T) float64) float64 {
 	next := q.iterate()
 	var sum float64
 	var n int
@@ -987,7 +1060,10 @@ func AvgBy[T any, V Integer | Float | Complex](q Query[T], selector func(T) floa
 		sum += selector(item)
 		n++
 	}
-	return float64(sum) / float64(n)
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
 }
 
 func Sum[T Float | Integer | Complex](list []T) T {
@@ -1088,9 +1164,13 @@ func Union[T comparable](list1 []T, list2 []T) []T {
 	return result
 }
 func Without[T comparable](list []T, exclude ...T) []T {
+	excludeSet := make(map[T]struct{}, len(exclude))
+	for _, e := range exclude {
+		excludeSet[e] = struct{}{}
+	}
 	result := make([]T, 0, len(list))
 	for _, e := range list {
-		if !Contains(exclude, e) {
+		if _, ok := excludeSet[e]; !ok {
 			result = append(result, e)
 		}
 	}
