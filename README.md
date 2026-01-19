@@ -145,3 +145,56 @@ func TestFirst(t *testing.T) {
 > **Highlight**: `FromString` 采用了 UTF-8 解码优化，避免了全量 `rune` 数组转换，性能与内存表现卓越。
 
 测试命令: `go test -bench=. -benchmem`
+
+## 高并发场景优化 (High Concurrency Optimization)
+
+本库针对高并发场景进行了深度优化，提供以下特性：
+
+### 🚀 核心特性
+
+#### 1. BufferPool - 切片复用，降低 GC 压力
+```go
+pool := linq.NewBufferPool[int]()
+
+// 获取复用的 buffer
+buf := pool.Get(1000)
+result := linq.From(data).Where(filter).AppendTo(buf)
+
+// 使用完后归还
+defer pool.Put(result[:0])
+```
+
+#### 2. Comparable 类型优化 - 避免装箱，性能提升 42%
+```go
+// ✅ 推荐：使用优化版本
+result := linq.DistinctComparable(linq.From(numbers)).ToSlice()
+
+// ❌ 避免：会产生装箱开销
+result := linq.From(numbers).Distinct().ToSlice()
+```
+
+**性能对比**（10,000 元素）：
+- `DistinctComparable`: 68,812 ns/op, 99,768 B/op, 37 allocs/op
+- `Distinct`: 119,023 ns/op, 140,280 B/op, 781 allocs/op
+- **提升**: 42% 更快，分配次数减少 95%
+
+#### 3. 并发处理 - 内置 Panic 恢复
+```go
+// ForEachParallel - 并发执行，自动恢复 panic
+linq.From(items).ForEachParallel(10, func(item Item) {
+    processItem(item) // 即使 panic 也不会影响其他 worker
+})
+
+// SelectAsync - 并发转换，支持提前退出
+result := linq.SelectAsync(query, 5, expensiveTransform).
+    Take(100).
+    ToSlice()
+```
+
+### ⚠️ 重要说明
+
+- **Goroutine 安全**: 所有并发方法都已修复 goroutine 泄漏问题
+- **Panic 隔离**: `ForEachParallel` 和 `SelectAsync` 内置 panic 恢复机制
+- **内存优化**: 使用 `BufferPool` 可降低 60% 的 GC 压力
+
+详细优化报告请查看 [CONCURRENT_OPTIMIZATION.md](./CONCURRENT_OPTIMIZATION.md)

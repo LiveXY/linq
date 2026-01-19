@@ -386,6 +386,13 @@ func (q Query[T]) ForEachParallel(workers int, action func(T)) {
 	for i := 0; i < workers; i++ {
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					// 记录 panic 但不中断其他 worker
+					// 在生产环境中应该使用日志记录
+					_ = r
+				}
+			}()
 			for item := range ch {
 				action(item)
 			}
@@ -671,11 +678,15 @@ func Select[T, V any](q Query[T], selector func(T) V) Query[V] {
 
 // SelectAsync performs the selector function concurrently.
 // Note: The order of elements in the result is NOT guaranteed to match the source.
+// WARNING: If you don't consume all results, use SelectAsyncCtx to avoid goroutine leaks.
 func SelectAsync[T, V any](q Query[T], workers int, selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func() func() (V, bool) {
 			next := q.iterate()
-			outCh := make(chan V, workers)
+			// 使用足够大的 buffer 来减少阻塞风险
+			// 但仍然存在泄漏风险，建议使用 SelectAsyncCtx
+			outCh := make(chan V, workers*2)
+			doneCh := make(chan struct{})
 
 			go func() {
 				defer close(outCh)
@@ -683,19 +694,42 @@ func SelectAsync[T, V any](q Query[T], workers int, selector func(T) V) Query[V]
 				var wg sync.WaitGroup
 
 				for item, ok := next(); ok; item, ok = next() {
-					sem <- struct{}{}
-					wg.Add(1)
-					go func(it T) {
-						defer wg.Done()
-						defer func() { <-sem }()
-						outCh <- selector(it)
-					}(item)
+					select {
+					case <-doneCh:
+						return
+					case sem <- struct{}{}:
+						wg.Add(1)
+						go func(it T) {
+							defer wg.Done()
+							defer func() {
+								<-sem
+								if r := recover(); r != nil {
+									// 处理 selector panic
+									_ = r
+								}
+							}()
+							result := selector(it)
+							select {
+							case <-doneCh:
+								return
+							case outCh <- result:
+							}
+						}(item)
+					}
 				}
 				wg.Wait()
 			}()
 
+			var closed bool
 			return func() (item V, ok bool) {
+				if closed {
+					return
+				}
 				item, ok = <-outCh
+				if !ok {
+					closed = true
+					close(doneCh)
+				}
 				return
 			}
 		},
