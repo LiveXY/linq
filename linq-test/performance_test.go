@@ -18,6 +18,8 @@ const (
 
 var (
 	intData       []int
+	intDataOther  []int // 用于 Union 测试的另一组数据
+	intSubset     []int // 用于 Every 测试的子集
 	duplicateData []int // 包含重复项的数据
 	userList      []User
 )
@@ -34,6 +36,16 @@ func init() {
 	intData = make([]int, size)
 	for i := 0; i < size; i++ {
 		intData[i] = i
+	}
+
+	intDataOther = make([]int, size)
+	for i := 0; i < size; i++ {
+		intDataOther[i] = i + size/2 // 与 intData 有一半重叠
+	}
+
+	intSubset = make([]int, size/10)
+	for i := 0; i < size/10; i++ {
+		intSubset[i] = i * 10 // 从 intData 中间隔采样作为子集
 	}
 
 	duplicateData = make([]int, size)
@@ -298,14 +310,22 @@ func Benchmark_LiveXY_Distinct(b *testing.B) {
 	}
 }
 
-// Benchmark_Linq1_Distinct 测试使用 LiveXY.Distinct 的自定义键去重性能
-func Benchmark_Linq1_Distinct(b *testing.B) {
+// Benchmark_LiveXY2_Distinct 测试使用 LiveXY.Distinct 的自定义键去重性能
+func Benchmark_LiveXY2_Distinct(b *testing.B) {
 	query := livexy.From(duplicateData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.Distinct(query, func(i int) int {
 			return i
 		}).ToSlice()
+	}
+}
+
+// Benchmark_Uniq_Distinct 测试使用 LiveXY.Distinct 的自定义键去重性能
+func Benchmark_Uniq_Distinct(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Uniq(duplicateData)
 	}
 }
 
@@ -337,5 +357,195 @@ func Benchmark_Native_Distinct(b *testing.B) {
 				res = append(res, v)
 			}
 		}
+	}
+}
+
+// --- 基准测试: 并集 (Union) ---
+
+// Benchmark_LiveXY_Union 测试 LiveXY 库的并集去重性能
+func Benchmark_LiveXY_Union(b *testing.B) {
+	q1 := livexy.From(intData)
+	q2 := livexy.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = q1.Union(q2).ToSlice()
+	}
+}
+
+// Benchmark_Ahmetb_Union 测试 go-linq (ahmetb) 库的并集去重性能
+func Benchmark_Ahmetb_Union(b *testing.B) {
+	q1 := ahmetb.From(intData)
+	q2 := ahmetb.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var res []int
+		q1.Union(q2).ToSlice(&res)
+	}
+}
+
+// Benchmark_Lo_Union 测试 lo 库的并集去重性能
+func Benchmark_Lo_Union(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = lo.Union(intData, intDataOther)
+	}
+}
+
+// Benchmark_Native_Union 测试使用 map 实现的原生并集去重性能
+func Benchmark_Native_Union(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		set := make(map[int]struct{}, size)
+		var res []int
+		for _, v := range intData {
+			if _, ok := set[v]; !ok {
+				set[v] = struct{}{}
+				res = append(res, v)
+			}
+		}
+		for _, v := range intDataOther {
+			if _, ok := set[v]; !ok {
+				set[v] = struct{}{}
+				res = append(res, v)
+			}
+		}
+	}
+}
+
+// --- 基准测试: 包含 (Contains) ---
+
+// Benchmark_LiveXY_Contains 测试 LiveXY 库的包含查询性能 (查找末尾元素)
+func Benchmark_LiveXY_Contains(b *testing.B) {
+	target := size - 1
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Contains(intData, target)
+	}
+}
+
+// Benchmark_Ahmetb_Contains 测试 go-linq (ahmetb) 库的包含查询性能
+func Benchmark_Ahmetb_Contains(b *testing.B) {
+	q := ahmetb.From(intData)
+	target := size - 1
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = q.Contains(target)
+	}
+}
+
+// Benchmark_Lo_Contains 测试 lo 库的包含查询性能
+func Benchmark_Lo_Contains(b *testing.B) {
+	target := size - 1
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = lo.Contains(intData, target)
+	}
+}
+
+// Benchmark_Native_Contains 测试原生 Go for 循环的包含查询性能
+func Benchmark_Native_Contains(b *testing.B) {
+	target := size - 1
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		found := false
+		for _, v := range intData {
+			if v == target {
+				found = true
+				break
+			}
+		}
+		_ = found
+	}
+}
+
+// --- 基准测试: 是否包含全部子集 (Every) ---
+
+// Benchmark_LiveXY_Every 测试 LiveXY 库的 Every 性能
+func Benchmark_LiveXY_Every(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Every(intData, intSubset)
+	}
+}
+
+// Benchmark_Ahmetb_Every 测试 go-linq (ahmetb) 库的 Every 性能 (组合实现)
+func Benchmark_Ahmetb_Every(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = ahmetb.From(intSubset).All(func(i interface{}) bool {
+			return ahmetb.From(intData).Contains(i)
+		})
+	}
+}
+
+// Benchmark_Lo_Every 测试 lo 库的 Every 性能
+func Benchmark_Lo_Every(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = lo.Every(intData, intSubset)
+	}
+}
+
+// Benchmark_Native_Every 测试原生 Go 实现的 Every 性能
+func Benchmark_Native_Every(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		set := make(map[int]struct{}, len(intData))
+		for _, v := range intData {
+			set[v] = struct{}{}
+		}
+		all := true
+		for _, v := range intSubset {
+			if _, ok := set[v]; !ok {
+				all = false
+				break
+			}
+		}
+		_ = all
+	}
+}
+
+// --- 基准测试: 是否包含子集中的任意元素 (Some) ---
+
+// Benchmark_LiveXY_Some 测试 LiveXY 库的 Some 性能
+func Benchmark_LiveXY_Some(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Some(intData, intSubset)
+	}
+}
+
+// Benchmark_Ahmetb_Some 测试 go-linq (ahmetb) 库的 Some 性能 (组合实现)
+func Benchmark_Ahmetb_Some(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = ahmetb.From(intSubset).AnyWith(func(i interface{}) bool {
+			return ahmetb.From(intData).Contains(i)
+		})
+	}
+}
+
+// Benchmark_Lo_Some 测试 lo 库的 Some 性能
+func Benchmark_Lo_Some(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = lo.Some(intData, intSubset)
+	}
+}
+
+// Benchmark_Native_Some 测试原生 Go 实现的 Some 性能
+func Benchmark_Native_Some(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		set := make(map[int]struct{}, len(intData))
+		for _, v := range intData {
+			set[v] = struct{}{}
+		}
+		any := false
+		for _, v := range intSubset {
+			if _, ok := set[v]; ok {
+				any = true
+				break
+			}
+		}
+		_ = any
 	}
 }

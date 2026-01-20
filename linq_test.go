@@ -25,6 +25,17 @@ var members = []*BMember{
 	{ID: 4, Name: "老六", Sex: 2, Age: 29},
 }
 
+// TestLinqWhere 测试LINQ条件
+func TestLinqWhere(t *testing.T) {
+	var query = From(members).
+		Where(func(m *BMember) bool { return m.Age == 28 })
+	fmt.Printf("年龄28的人数: %+v \n", query.Count())
+	query = query.Where(func(m *BMember) bool { return m.Sex == 1 })
+	fmt.Printf("年龄28的男生人数: %+v \n", query.Count())
+	fmt.Printf("年龄28的男生姓名: %+v \n", query.First().Name)
+	fmt.Printf("年龄28的男生姓名: %+v \n", query.Where(func(m *BMember) bool { return m.Sex == 2 }).DefaultIfEmpty(&BMember{}).First().Name)
+}
+
 // TestSum 测试数值聚合函数 (Sum, Avg, Min, Max)
 func TestSum(t *testing.T) {
 	fmt.Printf("年龄总和: %+v \n", From(members).SumIntBy(func(m *BMember) int { return m.Age }))
@@ -100,11 +111,11 @@ func TestFrom(t *testing.T) {
 	}
 }
 
-// TestFilter 测试过滤和类型转换 (Filter)
-func TestFilter(t *testing.T) {
-	out2 := Filter(
+// TestWhereSelect 测试过滤和类型转换
+func TestWhereSelect(t *testing.T) {
+	out2 := WhereSelect(
 		From(members),
-		func(m *BMember) (*SMember, bool) { return nil, false },
+		func(m *BMember) (*SMember, bool) { return nil, true },
 	).ToSlice()
 	for _, v := range out2 {
 		fmt.Printf("%+v \n", v)

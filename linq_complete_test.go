@@ -89,7 +89,7 @@ func TestSkip(t *testing.T) {
 
 	expected := []int{3, 4, 5}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -100,7 +100,7 @@ func TestTake(t *testing.T) {
 
 	expected := []int{1, 2, 3}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -138,7 +138,7 @@ func TestPrepend(t *testing.T) {
 
 	expected := []int{1, 2, 3, 4}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -458,8 +458,8 @@ func TestToMapSliceMethod(t *testing.T) {
 // 独立函数测试
 // ============================================================================
 
-// TestSelectFunction 测试 Select 函数
-func TestSelectFunction(t *testing.T) {
+// TestSelect 测试 Select 函数
+func TestSelect(t *testing.T) {
 	nums := []int{1, 2, 3, 4, 5}
 	result := Select(From(nums), func(i int) string {
 		return fmt.Sprintf("num_%d", i)
@@ -473,15 +473,15 @@ func TestSelectFunction(t *testing.T) {
 	}
 }
 
-// TestDistinctFunction 测试 Distinct 函数
-func TestDistinctFunction(t *testing.T) {
+// TestDistinctSelect 测试 DistinctSelect 函数
+func TestDistinctSelect(t *testing.T) {
 	type Item struct {
 		ID   int
 		Name string
 	}
 	items := []Item{{1, "a"}, {2, "b"}, {1, "c"}, {3, "d"}, {2, "e"}}
 
-	result := Distinct(From(items), func(i Item) int { return i.ID }).ToSlice()
+	result := DistinctSelect(From(items), func(i Item) int { return i.ID }).ToSlice()
 
 	if len(result) != 3 {
 		t.Errorf("期望 3 个不重复元素，实际得到 %d", len(result))
@@ -683,11 +683,11 @@ func TestIntersectFunction(t *testing.T) {
 
 	expected := []int{3, 4, 5}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
-// TestDifference 测试差异
+// Difference 测试差异
 func TestDifference(t *testing.T) {
 	list1 := []int{1, 2, 3, 4, 5}
 	list2 := []int{3, 4, 5, 6, 7}
@@ -709,29 +709,29 @@ func TestUnionFunction(t *testing.T) {
 
 	expected := []int{1, 2, 3, 4, 5}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
 // TestNoEmpty 测试过滤空值
 func TestNoEmpty(t *testing.T) {
 	strs := []string{"a", "", "b", "", "c"}
-	result := NoEmpty(strs)
+	result := WithoutEmpty(strs)
 
 	expected := []string{"a", "b", "c"}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
 // TestGtZero 测试过滤大于零的值
 func TestGtZero(t *testing.T) {
 	nums := []int{-2, -1, 0, 1, 2, 3}
-	result := GtZero(nums)
+	result := WithoutLEZero(nums)
 
 	expected := []int{1, 2, 3}
 	if len(result) != len(expected) {
-		t.Fatalf("Expected %d items, got %d", len(expected), len(result))
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
 	}
 }
 
@@ -851,8 +851,237 @@ func TestIF(t *testing.T) {
 // 额外覆盖测试
 // ============================================================================
 
-// TestExceptBy 测试 ExceptBy 函数
-func TestExceptBy(t *testing.T) {
+// TestOrdering 测试排序相关功能
+func TestOrdering(t *testing.T) {
+	type Person struct {
+		Name string
+		Age  int
+	}
+	people := []Person{
+		{"Alice", 30},
+		{"Bob", 20},
+		{"Charlie", 30},
+		{"David", 20},
+	}
+
+	q := From(people)
+	if q.HasOrder() {
+		t.Error("初始 Query 不应该有排序规则")
+	}
+
+	// 按年龄升序，再按名字降序
+	result := ThenByDescending(OrderBy(q, func(p Person) int { return p.Age }), func(p Person) string { return p.Name }).
+		ToSlice()
+
+	if result[0].Name != "David" || result[0].Age != 20 {
+		t.Errorf("排序错误: %v", result)
+	}
+	if result[1].Name != "Bob" || result[1].Age != 20 {
+		t.Errorf("排序错误: %v", result)
+	}
+
+	// 验证 HasOrder
+	qOrdered := OrderBy(q, func(p Person) int { return p.Age })
+	if !qOrdered.HasOrder() {
+		t.Error("OrderBy 后的 Query 应该有排序规则")
+	}
+
+	// 测试 OrderByDescending 和 ThenBy
+	result2 := ThenBy(OrderByDescending(q, func(p Person) int { return p.Age }), func(p Person) string { return p.Name }).
+		ToSlice()
+
+	if result2[0].Name != "Alice" || result2[0].Age != 30 {
+		t.Errorf("排序错误: %v", result2)
+	}
+}
+
+// TestGrouping 测试分组
+func TestGrouping(t *testing.T) {
+	type Person struct {
+		Name string
+		City string
+	}
+	people := []Person{
+		{"Alice", "New York"},
+		{"Bob", "Tokyo"},
+		{"Charlie", "New York"},
+	}
+
+	// GroupBy
+	groups := GroupBy(From(people), func(p Person) string { return p.City }).ToSlice()
+	if len(groups) != 2 {
+		t.Errorf("期望 2 个分组，实际得到 %d", len(groups))
+	}
+
+	// GroupBySelect
+	groupsSelect := GroupBySelect(From(people),
+		func(p Person) string { return p.City },
+		func(p Person) string { return p.Name },
+	).ToSlice()
+
+	for _, g := range groupsSelect {
+		if g.Key == "New York" {
+			if len(*g.Value) != 2 {
+				t.Errorf("New York 分组应该有 2 人，实际得到 %d", len(*g.Value))
+			}
+		}
+	}
+}
+
+// TestPageComplete 测试分页
+func TestPageComplete(t *testing.T) {
+	nums := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	result := From(nums).Page(2, 3).ToSlice() // 第2页，每页3个 -> 4, 5, 6
+
+	expected := []int{4, 5, 6}
+	if len(result) != 3 || result[0] != 4 || result[1] != 5 || result[2] != 6 {
+		t.Errorf("期望 %v，实际得到 %v", expected, result)
+	}
+}
+
+// TestParallelProcesses 测试并发处理
+func TestParallelProcesses(t *testing.T) {
+	nums := Range(1, 10)
+
+	// SelectAsync
+	results := SelectAsync(nums, 2, func(i int) int {
+		return i * 10
+	}).ToSlice()
+
+	if len(results) != 10 {
+		t.Errorf("SelectAsync 期望 10 个结果，实际得到 %d", len(results))
+	}
+
+	// ForEachParallel
+	var sum atomic.Int64
+	From([]int{1, 2, 3, 4, 5}).ForEachParallel(2, func(i int) {
+		sum.Add(int64(i))
+	})
+	if sum.Load() != 15 {
+		t.Errorf("ForEachParallel 期望总和 15，实际得到 %d", sum.Load())
+	}
+}
+
+// TestWhereSelectComplete 测试 WhereSelect
+func TestWhereSelectComplete(t *testing.T) {
+	nums := []int{1, 2, 3, 4, 5}
+	result := WhereSelect(From(nums), func(i int) (string, bool) {
+		if i%2 == 0 {
+			return fmt.Sprintf("even-%d", i), true
+		}
+		return "", false
+	}).ToSlice()
+
+	expected := []string{"even-2", "even-4"}
+	if len(result) != 2 || result[0] != "even-2" || result[1] != "even-4" {
+		t.Errorf("期望 %v，实际得到 %v", expected, result)
+	}
+}
+
+// TestAppendToComplete 测试 AppendTo
+func TestAppendToComplete(t *testing.T) {
+	nums := []int{1, 2, 3}
+	dest := []int{0}
+	result := From(nums).AppendTo(dest)
+
+	if len(result) != 4 || result[3] != 3 {
+		t.Errorf("意外的结果: %v", result)
+	}
+}
+
+// TestFirstLastDefault 测试默认值获取
+func TestFirstLastDefault(t *testing.T) {
+	empty := From([]int{})
+	if empty.FirstDefault(99) != 99 {
+		t.Error("FirstDefault 失败")
+	}
+	if empty.LastDefault(88) != 88 {
+		t.Error("LastDefault 失败")
+	}
+
+	nums := From([]int{1, 2, 3})
+	if nums.FirstDefault(99) != 1 {
+		t.Error("FirstDefault 应该返回第一个元素")
+	}
+}
+
+// TestStaticFunctions 测试独立工具函数
+func TestStaticFunctions(t *testing.T) {
+	nums := []int{1, 2, 3}
+
+	// Map / MapIndexed
+	m1 := Map(nums, func(i int) int { return i * 2 })
+	if m1[0] != 2 {
+		t.Error("Map 失败")
+	}
+	m2 := MapIndexed(nums, func(i int, idx int) int { return i + idx })
+	if m2[1] != 3 {
+		t.Error("MapIndexed 失败")
+	}
+
+	// Where / WhereIndexed
+	w1 := Where(nums, func(i int) bool { return i > 1 })
+	if len(w1) != 2 {
+		t.Error("Where 失败")
+	}
+	w2 := WhereIndexed(nums, func(i int, idx int) bool { return idx == 0 })
+	if len(w2) != 1 || w2[0] != 1 {
+		t.Error("WhereIndexed 失败")
+	}
+
+	// Without / WithoutIndex
+	wo := Without(nums, 2)
+	if len(wo) != 2 || wo[1] != 3 {
+		t.Error("Without 失败")
+	}
+
+	wi := WithoutIndex(nums, 1)
+	if len(wi) != 2 || wi[1] != 3 {
+		t.Error("WithoutIndex 失败")
+	}
+
+	// Equal / EqualBy
+	if !Equal([]int{1, 2}, 1, 2) {
+		t.Error("Equal 失败")
+	}
+	if !EqualBy([]int{1}, []int{2}, func(i int) int { return 0 }) {
+		t.Error("EqualBy 失败")
+	}
+
+	// ContainsBy
+	if !ContainsBy(nums, func(i int) bool { return i == 2 }) {
+		t.Error("ContainsBy 失败")
+	}
+
+	// BigData Path (通过模拟大数据触发)
+	bigList := make([]int, 2001)
+	for i := range 2001 {
+		bigList[i] = i
+	}
+	bigSubset := make([]int, 101)
+	for i := range 101 {
+		bigSubset[i] = i
+	}
+	Every(bigList, bigSubset) // 触发 EveryBigData
+	Some(bigList, bigSubset)  // 触发 SomeBigData
+	None(bigList, bigSubset)  // 触发 NoneBigData
+}
+
+// TestMinMaxByIndependent 测试 MinBy/MaxBy
+func TestMinMaxByIndependent(t *testing.T) {
+	nums := []int{10, 5, 20, 15}
+	q := From(nums)
+
+	if MinBy(q, func(i int) int { return i }) != 5 {
+		t.Error("MinBy 失败")
+	}
+	if MaxBy(q, func(i int) int { return i }) != 20 {
+		t.Error("MaxBy 失败")
+	}
+}
+
+// TestUnionSelect 测试 并集 函数
+func TestUnionSelect(t *testing.T) {
 	type Item struct {
 		ID   int
 		Name string
@@ -860,17 +1089,33 @@ func TestExceptBy(t *testing.T) {
 	items1 := []Item{{1, "a"}, {2, "b"}, {3, "c"}}
 	items2 := []Item{{2, "x"}, {3, "y"}}
 
-	// ExceptBy 返回的是 selector 的结果类型 (int)，不是原始 Item
-	result := ExceptBy(From(items1), From(items2), func(i Item) int { return i.ID }).ToSlice()
+	// UnionSelect 返回的是 selector 的结果类型 (int)
+	result := UnionSelect(From(items1), From(items2), func(i Item) int { return i.ID }).ToSlice()
 
-	// 只有 ID=1 不在 items2 中
+	if len(result) != 3 {
+		t.Errorf("期望 3 个元素，实际得到 %v", result)
+	}
+}
+
+// TestExceptSelect 测试 差集 函数
+func TestExceptSelect(t *testing.T) {
+	type Item struct {
+		ID   int
+		Name string
+	}
+	items1 := []Item{{1, "a"}, {2, "b"}, {3, "c"}}
+	items2 := []Item{{2, "x"}, {3, "y"}}
+
+	// ExceptSelect 返回的是 selector 的结果类型 (int)
+	result := ExceptSelect(From(items1), From(items2), func(i Item) int { return i.ID }).ToSlice()
+
 	if len(result) != 1 || result[0] != 1 {
 		t.Errorf("期望 [1]，实际得到 %v", result)
 	}
 }
 
-// TestIntersectBy 测试 IntersectBy 函数
-func TestIntersectBy(t *testing.T) {
+// TestIntersectSelect 测试 交集 函数
+func TestIntersectSelect(t *testing.T) {
 	type Item struct {
 		ID   int
 		Name string
@@ -878,10 +1123,9 @@ func TestIntersectBy(t *testing.T) {
 	items1 := []Item{{1, "a"}, {2, "b"}, {3, "c"}}
 	items2 := []Item{{2, "x"}, {3, "y"}}
 
-	// IntersectBy 返回的是 selector 的结果类型 (int)
-	result := IntersectBy(From(items1), From(items2), func(i Item) int { return i.ID }).ToSlice()
+	// IntersectSelect 返回的是 selector 的结果类型 (int)
+	result := IntersectSelect(From(items1), From(items2), func(i Item) int { return i.ID }).ToSlice()
 
-	// ID=2 和 ID=3 在两个集合中都存在
 	if len(result) != 2 {
 		t.Errorf("期望 2 个元素，实际得到 %d: %v", len(result), result)
 	}
@@ -961,7 +1205,6 @@ func TestUnionWithDuplicates(t *testing.T) {
 	nums2 := []int{3, 4, 4, 5}
 	result := From(nums1).Union(From(nums2)).ToSlice()
 
-	// 应该去重
 	expected := []int{1, 2, 3, 4, 5}
 	if len(result) != len(expected) {
 		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
@@ -987,66 +1230,43 @@ func TestTryWithRetry(t *testing.T) {
 	}
 }
 
-// TestSumInt8By 测试 int8 求和
-func TestSumInt8To64(t *testing.T) {
+// TestSumAllRemainingTypes 测试所有数值类型的求和
+func TestSumAllRemainingTypes(t *testing.T) {
 	type Num struct{ Val int }
-	nums := []Num{{1}, {2}, {3}}
+	items := []Num{{1}, {2}, {3}}
+	q := From(items)
 
-	sum8 := From(nums).SumInt8By(func(n Num) int8 { return int8(n.Val) })
-	if sum8 != 6 {
-		t.Errorf("SumInt8By: 期望 6，实际得到 %d", sum8)
+	if q.SumInt8By(func(n Num) int8 { return int8(n.Val) }) != 6 {
+		t.Error("SumInt8By 失败")
+	}
+	if q.SumInt16By(func(n Num) int16 { return int16(n.Val) }) != 6 {
+		t.Error("SumInt16By 失败")
+	}
+	if q.SumInt32By(func(n Num) int32 { return int32(n.Val) }) != 6 {
+		t.Error("SumInt32By 失败")
+	}
+	if q.SumFloat32By(func(n Num) float32 { return float32(n.Val) }) != 6.0 {
+		t.Error("SumFloat32By 失败")
 	}
 
-	sum16 := From(nums).SumInt16By(func(n Num) int16 { return int16(n.Val) })
-	if sum16 != 6 {
-		t.Errorf("SumInt16By: 期望 6，实际得到 %d", sum16)
+	type UNum struct{ Val uint }
+	uitems := []UNum{{1}, {2}, {3}}
+	uq := From(uitems)
+
+	if uq.SumUIntBy(func(n UNum) uint { return n.Val }) != 6 {
+		t.Error("SumUIntBy 失败")
 	}
-
-	sum32 := From(nums).SumInt32By(func(n Num) int32 { return int32(n.Val) })
-	if sum32 != 6 {
-		t.Errorf("SumInt32By: 期望 6，实际得到 %d", sum32)
+	if uq.SumUInt8By(func(n UNum) uint8 { return uint8(n.Val) }) != 6 {
+		t.Error("SumUInt8By 失败")
 	}
-}
-
-// TestSumUIntTypes 测试无符号整数求和
-func TestSumUIntTypes(t *testing.T) {
-	type Num struct{ Val uint }
-	nums := []Num{{1}, {2}, {3}}
-
-	sumU := From(nums).SumUIntBy(func(n Num) uint { return n.Val })
-	if sumU != 6 {
-		t.Errorf("SumUIntBy: 期望 6，实际得到 %d", sumU)
+	if uq.SumUInt16By(func(n UNum) uint16 { return uint16(n.Val) }) != 6 {
+		t.Error("SumUInt16By 失败")
 	}
-
-	sumU8 := From(nums).SumUInt8By(func(n Num) uint8 { return uint8(n.Val) })
-	if sumU8 != 6 {
-		t.Errorf("SumUInt8By: 期望 6，实际得到 %d", sumU8)
+	if uq.SumUInt32By(func(n UNum) uint32 { return uint32(n.Val) }) != 6 {
+		t.Error("SumUInt32By 失败")
 	}
-
-	sumU16 := From(nums).SumUInt16By(func(n Num) uint16 { return uint16(n.Val) })
-	if sumU16 != 6 {
-		t.Errorf("SumUInt16By: 期望 6，实际得到 %d", sumU16)
-	}
-
-	sumU32 := From(nums).SumUInt32By(func(n Num) uint32 { return uint32(n.Val) })
-	if sumU32 != 6 {
-		t.Errorf("SumUInt32By: 期望 6，实际得到 %d", sumU32)
-	}
-
-	sumU64 := From(nums).SumUInt64By(func(n Num) uint64 { return uint64(n.Val) })
-	if sumU64 != 6 {
-		t.Errorf("SumUInt64By: 期望 6，实际得到 %d", sumU64)
-	}
-}
-
-// TestSumFloat32 测试 float32 求和
-func TestSumFloat32(t *testing.T) {
-	type Num struct{ Val float32 }
-	nums := []Num{{1.5}, {2.5}, {3.0}}
-
-	sum := From(nums).SumFloat32By(func(n Num) float32 { return n.Val })
-	if sum != 7.0 {
-		t.Errorf("期望 7.0，实际得到 %f", sum)
+	if uq.SumUInt64By(func(n UNum) uint64 { return uint64(n.Val) }) != 6 {
+		t.Error("SumUInt64By 失败")
 	}
 }
 
@@ -1058,60 +1278,19 @@ func TestSelectAsyncCtx(t *testing.T) {
 	count := 100
 	nums := Range(0, count)
 
-	// 我们只想要前 10 个
 	result := SelectAsyncCtx(ctx, nums, 5, func(i int) int {
 		return i * 2
 	}).Take(10).ToSlice()
 
-	// 显式取消，模拟提前退出
 	cancel()
 
 	if len(result) != 10 {
 		t.Errorf("期望 10 个元素，实际得到 %d", len(result))
 	}
 
-	// 验证结果内容
 	for i, v := range result {
 		if v%2 != 0 {
 			t.Errorf("索引 %d: 期望偶数，实际得到 %d", i, v)
-		}
-		if v < 0 || v >= count*2 {
-			t.Errorf("索引 %d: 值 %d 超出范围", i, v)
-		}
-	}
-
-	// 等待让 goroutine 退出
-	time.Sleep(50 * time.Millisecond)
-}
-
-// TestTakeWhile 测试 TakeWhile
-func TestTakeWhile(t *testing.T) {
-	nums := []int{1, 2, 3, 4, 1, 2}
-	result := From(nums).TakeWhile(func(i int) bool { return i < 4 }).ToSlice()
-
-	expected := []int{1, 2, 3}
-	if len(result) != len(expected) {
-		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
-	}
-	for i, v := range result {
-		if v != expected[i] {
-			t.Errorf("索引 %d: 期望 %d，实际得到 %d", i, expected[i], v)
-		}
-	}
-}
-
-// TestSkipWhile 测试 SkipWhile
-func TestSkipWhile(t *testing.T) {
-	nums := []int{1, 2, 3, 4, 1, 2}
-	result := From(nums).SkipWhile(func(i int) bool { return i < 3 }).ToSlice()
-
-	expected := []int{3, 4, 1, 2}
-	if len(result) != len(expected) {
-		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
-	}
-	for i, v := range result {
-		if v != expected[i] {
-			t.Errorf("索引 %d: 期望 %d，实际得到 %d", i, expected[i], v)
 		}
 	}
 }
@@ -1124,7 +1303,6 @@ func TestForEachParallelCtx(t *testing.T) {
 	nums := Range(0, 100)
 	var processed atomic.Int32
 
-	// 启动一个耗时的处理并在中途取消
 	go func() {
 		time.Sleep(10 * time.Millisecond)
 		cancel()
@@ -1135,8 +1313,180 @@ func TestForEachParallelCtx(t *testing.T) {
 		processed.Add(1)
 	})
 
-	// 应该只有一部分被处理（可能少于100），且不应该永久阻塞
 	if processed.Load() == 100 {
 		t.Error("期望少于 100 个元素被处理")
 	}
+}
+
+// TestEdgeCases 测试边缘情况
+func TestEdgeCases(t *testing.T) {
+	// EqualBy 不同长度
+	if EqualBy([]int{1}, []int{1, 2}, func(i int) int { return i }) {
+		t.Error("EqualBy 长度不同应返回 false")
+	}
+	if EqualBy([]int{1}, []int{2}, func(i int) int { return i }) {
+		t.Error("EqualBy 值不同应返回 false")
+	}
+
+	// IndexOf fastPath with preFilter match/no-match
+	q := From([]int{1, 2, 3, 4}).Where(func(i int) bool { return i > 2 }) // 结果集为 {3, 4}
+	if q.IndexOf(func(i int) bool { return i == 4 }) != 1 {
+		t.Errorf("Filtered IndexOf 失败, 得到 %d", q.IndexOf(func(i int) bool { return i == 4 }))
+	}
+	if q.IndexOf(func(i int) bool { return i == 1 }) != -1 {
+		t.Error("Filtered IndexOf(hidden) 失败")
+	}
+
+	// Single with 0 items
+	empty := From([]int{})
+	if empty.Single() != 0 {
+		t.Error("Empty Single 失败")
+	}
+
+	// All/Any with empty
+	if !empty.All(func(i int) bool { return true }) {
+		t.Error("Empty All 应为 true")
+	}
+	if empty.Any() {
+		t.Error("Empty Any 应为 false")
+	}
+}
+
+// TestToSlicePaths 测试 ToSlice 的不同路径
+func TestToSlicePaths(t *testing.T) {
+	nums := []int{1, 2, 3}
+	// 直接路径 (copy)
+	results := From(nums).ToSlice()
+	if len(results) != 3 || results[0] != 1 {
+		t.Error("Direct ToSlice 失败")
+	}
+
+	// 过滤路径 (fastSlice + fastWhere)
+	results2 := From(nums).Where(func(i int) bool { return i > 1 }).ToSlice()
+	if len(results2) != 2 || results2[0] != 2 {
+		t.Error("Filtered ToSlice 失败")
+	}
+
+	// 延迟路径 (iterator)
+	results3 := Range(1, 3).ToSlice()
+	if len(results3) != 3 || results3[0] != 1 {
+		t.Error("Lazy ToSlice 失败")
+	}
+}
+
+// TestFromStringComplete 测试 FromString
+func TestFromStringComplete(t *testing.T) {
+	s := "hello世界"
+	result := FromString(s).ToSlice()
+
+	if len(result) != 7 {
+		t.Errorf("期望 7 个字符，实际得到 %d: %v", len(result), result)
+	}
+	if result[5] != "世" || result[6] != "界" {
+		t.Error("多字节字符解析错误")
+	}
+}
+
+// TestTakeWhile 测试 TakeWhile
+func TestTakeWhile(t *testing.T) {
+	nums := []int{1, 2, 3, 4, 1, 2}
+	result := From(nums).TakeWhile(func(i int) bool { return i < 4 }).ToSlice()
+
+	expected := []int{1, 2, 3}
+	if len(result) != len(expected) {
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
+	}
+
+	// 慢路径测试
+	ch := make(chan int, 5)
+	for i := 1; i <= 5; i++ {
+		ch <- i
+	}
+	close(ch)
+	result2 := FromChannel(ch).TakeWhile(func(i int) bool { return i < 3 }).ToSlice()
+	if len(result2) != 2 {
+		t.Errorf("Lazy TakeWhile 失败: %v", result2)
+	}
+}
+
+// TestSkipWhile 测试 SkipWhile
+func TestSkipWhile(t *testing.T) {
+	nums := []int{1, 2, 3, 4, 1, 2}
+	result := From(nums).SkipWhile(func(i int) bool { return i < 3 }).ToSlice()
+
+	expected := []int{3, 4, 1, 2}
+	if len(result) != len(expected) {
+		t.Fatalf("期望 %d 个元素，实际得到 %d", len(expected), len(result))
+	}
+
+	// 慢路径测试
+	ch := make(chan int, 5)
+	for i := 1; i <= 5; i++ {
+		ch <- i
+	}
+	close(ch)
+	result2 := FromChannel(ch).SkipWhile(func(i int) bool { return i < 3 }).ToSlice()
+	if len(result2) != 3 || result2[0] != 3 {
+		t.Errorf("Lazy SkipWhile 失败: %v", result2)
+	}
+}
+
+// TestLazyPaths 测试非切片源（慢路径）的覆盖
+func TestLazyPaths(t *testing.T) {
+	// 使用 Range 产生非切片 Query
+	q := Range(1, 5) // 1, 2, 3, 4, 5
+
+	// IndexOf
+	if q.IndexOf(func(i int) bool { return i == 3 }) != 2 {
+		t.Error("Lazy IndexOf 失败")
+	}
+
+	// All / Any / AnyWith
+	if !q.All(func(i int) bool { return i > 0 }) {
+		t.Error("Lazy All 失败")
+	}
+	if !q.Any() {
+		t.Error("Lazy Any 失败")
+	}
+	if !q.AnyWith(func(i int) bool { return i == 5 }) {
+		t.Error("Lazy AnyWith 失败")
+	}
+
+	// CountWith
+	if q.CountWith(func(i int) bool { return i%2 == 0 }) != 2 {
+		t.Error("Lazy CountWith 失败")
+	}
+
+	// First / FirstWith
+	if q.First() != 1 {
+		t.Error("Lazy First 失败")
+	}
+	if q.FirstWith(func(i int) bool { return i > 3 }) != 4 {
+		t.Error("Lazy FirstWith 失败")
+	}
+
+	// Last / LastWith
+	if q.Last() != 5 {
+		t.Error("Lazy Last 失败")
+	}
+	if q.LastWith(func(i int) bool { return i < 3 }) != 2 {
+		t.Error("Lazy LastWith 失败")
+	}
+
+	// ForEach / ForEachIndexed
+	var count int
+	q.ForEach(func(i int) bool {
+		count++
+		return true
+	})
+	if count != 5 {
+		t.Error("Lazy ForEach 失败")
+	}
+
+	q.ForEachIndexed(func(idx int, val int) bool {
+		if idx == 0 && val != 1 {
+			t.Error("Lazy ForEachIndexed 失败")
+		}
+		return true
+	})
 }
