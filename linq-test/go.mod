@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/ahmetb/go-linq/v3 v3.2.0
-	github.com/livexy/linq v1.1.0
+	github.com/livexy/linq v1.1.2
 	github.com/samber/lo v1.52.0
 )
 

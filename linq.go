@@ -166,6 +166,7 @@ func FromString(source string) Query[string] {
 				return
 			}
 		},
+		capacity: len(source),
 	}
 }
 
@@ -607,8 +608,32 @@ func (q Query[T]) DefaultIfEmpty(defaultValue T) Query[T] {
 }
 
 // Distinct 返回去重后的序列的查询对象
-// Distinct 返回去重后的序列的查询对象
 func (q Query[T]) Distinct() Query[T] {
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		return Query[T]{
+			iterate: func() func() (T, bool) {
+				index := 0
+				length := len(source)
+				set := make(map[T]struct{}, length)
+				return func() (item T, ok bool) {
+					for index < length {
+						it := source[index]
+						index++
+						if predicate != nil && !predicate(it) {
+							continue
+						}
+						if _, has := set[it]; !has {
+							set[it] = struct{}{}
+							return it, true
+						}
+					}
+					return
+				}
+			},
+		}
+	}
 	return Query[T]{
 		iterate: func() func() (T, bool) {
 			next := q.iterate()
@@ -630,7 +655,6 @@ func (q Query[T]) Distinct() Query[T] {
 	}
 }
 
-// Intersect 返回交集，即同时存在于两个序列中的元素的查询对象
 // Intersect 返回交集，即同时存在于两个序列中的元素的查询对象
 func (q Query[T]) Intersect(q2 Query[T]) Query[T] {
 	if q.fastSlice != nil && q2.fastSlice != nil {
@@ -1104,6 +1128,39 @@ func (q Query[T]) ForEachParallel(workers int, action func(T)) {
 		})
 		return
 	}
+
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		length := len(source)
+		if length == 0 {
+			return
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for i := 0; i < workers; i++ {
+			go func(wIdx int) {
+				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						_ = r
+					}
+				}()
+				// Stride based distribution implies simple load balancing
+				for j := wIdx; j < length; j += workers {
+					item := source[j]
+					if predicate != nil && !predicate(item) {
+						continue
+					}
+					action(item)
+				}
+			}(i)
+		}
+		wg.Wait()
+		return
+	}
+
 	ch := make(chan T, workers)
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -1142,6 +1199,43 @@ func (q Query[T]) ForEachParallelCtx(ctx context.Context, workers int, action fu
 		})
 		return
 	}
+
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		length := len(source)
+		if length == 0 {
+			return
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(workers)
+		for i := 0; i < workers; i++ {
+			go func(wIdx int) {
+				defer wg.Done()
+				defer func() {
+					if r := recover(); r != nil {
+						_ = r
+					}
+				}()
+				for j := wIdx; j < length; j += workers {
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					item := source[j]
+					if predicate != nil && !predicate(item) {
+						continue
+					}
+					action(item)
+				}
+			}(i)
+		}
+		wg.Wait()
+		return
+	}
+
 	ch := make(chan T, workers)
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -1244,6 +1338,32 @@ func (q Query[T]) LastWith(predicate func(T) bool) (r T) {
 
 // Single 返回序列中的唯一元素，如果序列为空或包含多个元素则返回零值
 func (q Query[T]) Single() (r T) {
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		found := false
+		if predicate == nil {
+			if len(source) == 1 {
+				return source[0]
+			}
+			return
+		}
+		for _, item := range source {
+			if predicate(item) {
+				if found {
+					var zero T
+					return zero
+				}
+				r = item
+				found = true
+			}
+		}
+		if found {
+			return r
+		}
+		var zero T
+		return zero
+	}
 	next := q.iterate()
 	item, ok := next()
 	if !ok {
@@ -1383,6 +1503,24 @@ func (q Query[T]) ToSlice() (r []T) {
 
 // AppendTo 将序列中的元素追加到指定的切片中
 func (q Query[T]) AppendTo(dest []T) []T {
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		if predicate == nil {
+			dest = slices.Grow(dest, len(source))
+			dest = append(dest, source...)
+			return dest
+		}
+		for _, item := range source {
+			if predicate(item) {
+				dest = append(dest, item)
+			}
+		}
+		return dest
+	}
+	if q.capacity > 0 {
+		dest = slices.Grow(dest, q.capacity)
+	}
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		dest = append(dest, item)
@@ -1392,6 +1530,18 @@ func (q Query[T]) AppendTo(dest []T) []T {
 
 // ToChannel 将序列写入到指定的只写 Channel
 func (q Query[T]) ToChannel(c chan<- T) {
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		for _, item := range source {
+			if predicate != nil && !predicate(item) {
+				continue
+			}
+			c <- item
+		}
+		close(c)
+		return
+	}
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		c <- item
@@ -1401,6 +1551,27 @@ func (q Query[T]) ToChannel(c chan<- T) {
 
 // ToMapSlice 将序列转换为 []map[string]T，通常用于 JSON 序列化
 func (q Query[T]) ToMapSlice(selector func(T) map[string]T) (r []map[string]T) {
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		if predicate == nil {
+			r = make([]map[string]T, len(source))
+			for i, item := range source {
+				r[i] = selector(item)
+			}
+			return
+		}
+		r = make([]map[string]T, 0, q.capacity)
+		for _, item := range source {
+			if predicate(item) {
+				r = append(r, selector(item))
+			}
+		}
+		return
+	}
+	if q.capacity > 0 {
+		r = make([]map[string]T, 0, q.capacity)
+	}
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		r = append(r, selector(item))
@@ -1600,47 +1771,50 @@ func Select[T, V comparable](q Query[T], selector func(T) V) Query[V] {
 func SelectAsync[T, V comparable](q Query[T], workers int, selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func() func() (V, bool) {
-			next := q.iterate()
 			outCh := make(chan V, workers*2)
 			doneCh := make(chan struct{})
 			var closeOnce sync.Once
+
 			go func() {
 				defer close(outCh)
-				sem := make(chan struct{}, workers)
-				var wg sync.WaitGroup
+
 				if q.fastSlice != nil {
 					source := q.fastSlice
 					predicate := q.fastWhere
-					for _, item := range source {
-						if predicate != nil && !predicate(item) {
-							continue
-						}
-						select {
-						case <-doneCh:
-							wg.Wait()
-							return
-						case sem <- struct{}{}:
-							wg.Add(1)
-							go func(it T) {
-								defer wg.Done()
-								defer func() {
-									<-sem
-									if r := recover(); r != nil {
-										_ = r
-									}
-								}()
-								result := selector(it)
+					length := len(source)
+					var wg sync.WaitGroup
+					wg.Add(workers)
+
+					for i := 0; i < workers; i++ {
+						go func(wIdx int) {
+							defer wg.Done()
+							defer func() {
+								if r := recover(); r != nil {
+									_ = r
+								}
+							}()
+							for j := wIdx; j < length; j += workers {
+								item := source[j]
+								if predicate != nil && !predicate(item) {
+									continue
+								}
+								result := selector(item)
 								select {
 								case <-doneCh:
 									return
 								case outCh <- result:
 								}
-							}(item)
-						}
+							}
+						}(i)
 					}
 					wg.Wait()
 					return
 				}
+
+				next := q.iterate()
+				sem := make(chan struct{}, workers)
+				var wg sync.WaitGroup
+
 				for item, ok := next(); ok; item, ok = next() {
 					select {
 					case <-doneCh:
@@ -1667,6 +1841,7 @@ func SelectAsync[T, V comparable](q Query[T], workers int, selector func(T) V) Q
 				}
 				wg.Wait()
 			}()
+
 			return func() (item V, ok bool) {
 				item, ok = <-outCh
 				if !ok {
@@ -1686,51 +1861,41 @@ func SelectAsync[T, V comparable](q Query[T], workers int, selector func(T) V) Q
 func SelectAsyncCtx[T, V comparable](ctx context.Context, q Query[T], workers int, selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func() func() (V, bool) {
-			next := q.iterate()
 			outCh := make(chan V, workers*2)
 			doneCh := make(chan struct{})
 			var closeOnce sync.Once
 
 			go func() {
 				defer close(outCh)
-				sem := make(chan struct{}, workers)
-				var wg sync.WaitGroup
+
 				if q.fastSlice != nil {
 					source := q.fastSlice
 					predicate := q.fastWhere
-					for _, item := range source {
-						select {
-						case <-ctx.Done():
-							closeOnce.Do(func() { close(doneCh) })
-							wg.Wait()
-							return
-						case <-doneCh:
-							wg.Wait()
-							return
-						default:
-						}
-						if predicate != nil && !predicate(item) {
-							continue
-						}
-						select {
-						case <-ctx.Done():
-							closeOnce.Do(func() { close(doneCh) })
-							wg.Wait()
-							return
-						case <-doneCh:
-							wg.Wait()
-							return
-						case sem <- struct{}{}:
-							wg.Add(1)
-							go func(it T) {
-								defer wg.Done()
-								defer func() {
-									<-sem
-									if r := recover(); r != nil {
-										_ = r
-									}
-								}()
-								result := selector(it)
+					length := len(source)
+					var wg sync.WaitGroup
+					wg.Add(workers)
+
+					for i := 0; i < workers; i++ {
+						go func(wIdx int) {
+							defer wg.Done()
+							defer func() {
+								if r := recover(); r != nil {
+									_ = r
+								}
+							}()
+							for j := wIdx; j < length; j += workers {
+								select {
+								case <-ctx.Done():
+									return
+								case <-doneCh:
+									return
+								default:
+								}
+								item := source[j]
+								if predicate != nil && !predicate(item) {
+									continue
+								}
+								result := selector(item)
 								select {
 								case <-ctx.Done():
 									return
@@ -1738,12 +1903,17 @@ func SelectAsyncCtx[T, V comparable](ctx context.Context, q Query[T], workers in
 									return
 								case outCh <- result:
 								}
-							}(item)
-						}
+							}
+						}(i)
 					}
 					wg.Wait()
 					return
 				}
+
+				next := q.iterate()
+				sem := make(chan struct{}, workers)
+				var wg sync.WaitGroup
+
 				for item, ok := next(); ok; item, ok = next() {
 					select {
 					case <-ctx.Done():
@@ -1804,11 +1974,37 @@ func SelectAsyncCtx[T, V comparable](ctx context.Context, q Query[T], workers in
 				}
 			}
 		},
+		capacity: q.capacity,
 	}
 }
 
 // WhereSelect 根据选择器返回的布尔值过滤元素，并转换类型的查询对象
 func WhereSelect[T, V comparable](q Query[T], selector func(T) (V, bool)) Query[V] {
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		return Query[V]{
+			iterate: func() func() (V, bool) {
+				index := 0
+				length := len(source)
+				return func() (item V, ok bool) {
+					for index < length {
+						it := source[index]
+						index++
+						if predicate != nil && !predicate(it) {
+							continue
+						}
+						item, ok = selector(it)
+						if ok {
+							return item, true
+						}
+					}
+					return
+				}
+			},
+			capacity: q.capacity,
+		}
+	}
 	return Query[V]{
 		iterate: func() func() (V, bool) {
 			next := q.iterate()
@@ -1829,10 +2025,40 @@ func WhereSelect[T, V comparable](q Query[T], selector func(T) (V, bool)) Query[
 // DistinctSelect 根据选择器返回的值对序列进行去重的查询对象
 // DistinctSelect[T, V] 对于 T 类型的序列，使用 selector(T) -> V 进行去重，返回 V 类型的序列
 func DistinctSelect[T, V comparable](q Query[T], selector func(T) V) Query[V] {
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		return Query[V]{
+			iterate: func() func() (V, bool) {
+				index := 0
+				length := len(source)
+				set := make(map[V]struct{}, length)
+				return func() (item V, ok bool) {
+					for index < length {
+						it := source[index]
+						index++
+						if predicate != nil && !predicate(it) {
+							continue
+						}
+						s := selector(it)
+						if _, has := set[s]; !has {
+							set[s] = struct{}{}
+							return s, true
+						}
+					}
+					return
+				}
+			},
+		}
+	}
 	return Query[V]{
 		iterate: func() func() (V, bool) {
 			next := q.iterate()
-			set := make(map[V]struct{})
+			capacity := q.capacity
+			if capacity == 0 {
+				capacity = 8
+			}
+			set := make(map[V]struct{}, capacity)
 			return func() (item V, ok bool) {
 				var it T
 				for it, ok = next(); ok; it, ok = next() {
@@ -1851,11 +2077,57 @@ func DistinctSelect[T, V comparable](q Query[T], selector func(T) V) Query[V] {
 
 // UnionSelect 返回两个序列经过选择器处理后的并集，自动去重
 func UnionSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+	if q.fastSlice != nil && q2.fastSlice != nil {
+		s1 := q.fastSlice
+		p1 := q.fastWhere
+		s2 := q2.fastSlice
+		p2 := q2.fastWhere
+		return Query[V]{
+			iterate: func() func() (V, bool) {
+				idx1 := 0
+				idx2 := 0
+				len1 := len(s1)
+				len2 := len(s2)
+				set := make(map[V]struct{}, len1+len2)
+				return func() (item V, ok bool) {
+					for idx1 < len1 {
+						it := s1[idx1]
+						idx1++
+						if p1 != nil && !p1(it) {
+							continue
+						}
+						val := selector(it)
+						if _, has := set[val]; !has {
+							set[val] = struct{}{}
+							return val, true
+						}
+					}
+					for idx2 < len2 {
+						it := s2[idx2]
+						idx2++
+						if p2 != nil && !p2(it) {
+							continue
+						}
+						val := selector(it)
+						if _, has := set[val]; !has {
+							set[val] = struct{}{}
+							return val, true
+						}
+					}
+					return
+				}
+			},
+		}
+	}
 	return Query[V]{
 		iterate: func() func() (V, bool) {
 			next1 := q.iterate()
 			next2 := q2.iterate()
-			seen := make(map[V]struct{})
+			capacity := q.capacity + q2.capacity
+			if capacity == 0 {
+				capacity = 16
+			}
+			seen := make(map[V]struct{}, capacity)
 			firstDone := false
 			return func() (item V, ok bool) {
 				if !firstDone {
@@ -1883,11 +2155,50 @@ func UnionSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
 
 // IntersectSelect 根据选择器返回的值计算交集的查询对象
 func IntersectSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+	if q.fastSlice != nil && q2.fastSlice != nil {
+		s1 := q.fastSlice
+		p1 := q.fastWhere
+		s2 := q2.fastSlice
+		p2 := q2.fastWhere
+		return Query[V]{
+			iterate: func() func() (V, bool) {
+				index := 0
+				length := len(s1)
+				set := make(map[V]struct{}, len(s2))
+				for _, item := range s2 {
+					if p2 != nil && !p2(item) {
+						continue
+					}
+					s := selector(item)
+					set[s] = struct{}{}
+				}
+				return func() (item V, ok bool) {
+					for index < length {
+						it := s1[index]
+						index++
+						if p1 != nil && !p1(it) {
+							continue
+						}
+						s := selector(it)
+						if _, has := set[s]; has {
+							delete(set, s)
+							return s, true
+						}
+					}
+					return
+				}
+			},
+		}
+	}
 	return Query[V]{
 		iterate: func() func() (V, bool) {
 			next := q.iterate()
 			next2 := q2.iterate()
-			set := make(map[V]struct{})
+			capacity := q2.capacity
+			if capacity == 0 {
+				capacity = 8
+			}
+			set := make(map[V]struct{}, capacity)
 			for item, ok := next2(); ok; item, ok = next2() {
 				s := selector(item)
 				set[s] = struct{}{}
@@ -1911,11 +2222,49 @@ func IntersectSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[
 // ExceptSelect 根据选择器返回的值计算差集的查询对象
 // 返回在第一个序列中但不在第二个序列中的元素（基于选择器返回值）
 func ExceptSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+	if q.fastSlice != nil && q2.fastSlice != nil {
+		s1 := q.fastSlice
+		p1 := q.fastWhere
+		s2 := q2.fastSlice
+		p2 := q2.fastWhere
+		return Query[V]{
+			iterate: func() func() (V, bool) {
+				index := 0
+				length := len(s1)
+				set := make(map[V]struct{}, len(s2))
+				for _, item := range s2 {
+					if p2 != nil && !p2(item) {
+						continue
+					}
+					s := selector(item)
+					set[s] = struct{}{}
+				}
+				return func() (item V, ok bool) {
+					for index < length {
+						it := s1[index]
+						index++
+						if p1 != nil && !p1(it) {
+							continue
+						}
+						s := selector(it)
+						if _, has := set[s]; !has {
+							return s, true
+						}
+					}
+					return
+				}
+			},
+		}
+	}
 	return Query[V]{
 		iterate: func() func() (V, bool) {
 			next := q.iterate()
 			next2 := q2.iterate()
-			set := make(map[V]struct{})
+			capacity := q2.capacity
+			if capacity == 0 {
+				capacity = 8
+			}
+			set := make(map[V]struct{}, capacity)
 			for i, ok := next2(); ok; i, ok = next2() {
 				s := selector(i)
 				set[s] = struct{}{}
@@ -1951,6 +2300,7 @@ func Range[T Integer](start, count T) Query[T] {
 				return
 			}
 		},
+		capacity: int(count),
 	}
 }
 
@@ -1968,12 +2318,42 @@ func Repeat[T cmp.Ordered](value T, count int) Query[T] {
 				return
 			}
 		},
+		capacity: count,
 	}
 }
 
 // ToMap 将序列转换为 map，需要提供 Key 选择器的查询对象
 func ToMap[T, K comparable](q Query[T], selector func(T) K) map[K]T {
-	ret := make(map[K]T)
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		var ret map[K]T
+		if predicate == nil {
+			ret = make(map[K]T, len(source))
+			for _, item := range source {
+				ret[selector(item)] = item
+			}
+			return ret
+		}
+		if q.capacity > 0 {
+			ret = make(map[K]T, q.capacity)
+		} else {
+			ret = make(map[K]T)
+		}
+		for _, item := range source {
+			if predicate(item) {
+				ret[selector(item)] = item
+			}
+		}
+		return ret
+	}
+
+	var ret map[K]T
+	if q.capacity > 0 {
+		ret = make(map[K]T, q.capacity)
+	} else {
+		ret = make(map[K]T)
+	}
 	next := q.iterate()
 	for item, ok := next(); ok; item, ok = next() {
 		k := selector(item)
@@ -2057,17 +2437,27 @@ func LastIndexOf[T comparable](list []T, element T) int {
 	return -1
 }
 
-// Reverse 反转切片中的元素，返回新切片，原切片不变
-func Reverse[T comparable](list []T) []T {
-	result := make([]T, len(list))
-	copy(result, list)
-	length := len(result)
+func reverse[T comparable](list []T) {
+	length := len(list)
 	half := length / 2
 	for i := range half {
 		j := length - 1 - i
-		result[i], result[j] = result[j], result[i]
+		list[i], list[j] = list[j], list[i]
 	}
-	return result
+}
+
+// Reverse 反转切片中的元素, 缺点原地反转
+func Reverse[T comparable](list []T) []T {
+	reverse(list)
+	return list
+}
+
+// CloneReverse 反转切片中的元素, 返回新的切片
+func CloneReverse[T comparable](list []T) []T {
+	data := make([]T, len(list))
+	copy(data, list)
+	reverse(data)
+	return data
 }
 
 // Min 返回切片中的最小值
@@ -2192,6 +2582,23 @@ func SumBy[T comparable, V Integer | Float | Complex](q Query[T], selector func(
 
 // AvgBy 计算平均值，兼容所有类型
 func AvgBy[T comparable, V Integer | Float](q Query[T], selector func(T) V) float64 {
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		predicate := q.fastWhere
+		var sum float64
+		var n int
+		for _, item := range source {
+			if predicate != nil && !predicate(item) {
+				continue
+			}
+			sum += float64(selector(item))
+			n++
+		}
+		if n == 0 {
+			return 0
+		}
+		return sum / float64(n)
+	}
 	next := q.iterate()
 	var sum float64
 	var n int
@@ -2596,4 +3003,17 @@ func IF[T comparable](cond bool, suc, fail T) T {
 	} else {
 		return fail
 	}
+}
+
+// Concat 合并多个结果集
+func Concat[T comparable](lists ...[]T) []T {
+	totalLen := 0
+	for i := range lists {
+		totalLen += len(lists[i])
+	}
+	result := make([]T, 0, totalLen)
+	for i := range lists {
+		result = append(result, lists[i]...)
+	}
+	return result
 }

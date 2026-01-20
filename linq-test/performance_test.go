@@ -45,7 +45,7 @@ func init() {
 
 	intSubset = make([]int, size/10)
 	for i := 0; i < size/10; i++ {
-		intSubset[i] = i * 10 // 从 intData 中间隔采样作为子集
+		intSubset[i] = rand.Intn(size) // 随机在 0 到 size-1 之间取值
 	}
 
 	duplicateData = make([]int, size)
@@ -315,7 +315,7 @@ func Benchmark_LiveXY2_Distinct(b *testing.B) {
 	query := livexy.From(duplicateData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Distinct(query, func(i int) int {
+		_ = livexy.DistinctSelect(query, func(i int) int {
 			return i
 		}).ToSlice()
 	}
@@ -369,6 +369,26 @@ func Benchmark_LiveXY_Union(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = q1.Union(q2).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY2_Union 测试使用 LiveXY.Distinct 的自定义键去重性能
+func Benchmark_LiveXY2_Union(b *testing.B) {
+	q1 := livexy.From(intData)
+	q2 := livexy.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.UnionSelect(q1, q2, func(i int) int {
+			return i
+		}).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY3_Union 测试使用 LiveXY.Intersect 的交集性能
+func Benchmark_LiveXY3_Union(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Union(intData, intDataOther)
 	}
 }
 
@@ -547,5 +567,279 @@ func Benchmark_Native_Some(b *testing.B) {
 			}
 		}
 		_ = any
+	}
+}
+
+// --- 基准测试: 合并 (Concat) ---
+
+// Benchmark_LiveXY_Concat 测试 LiveXY 库的合并性能
+func Benchmark_LiveXY_Concat(b *testing.B) {
+	q1 := livexy.From(intData)
+	q2 := livexy.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = q1.Concat(q2).ToSlice()
+	}
+}
+
+// Benchmark_Ahmetb_Concat 测试 go-linq (ahmetb) 库的合并性能
+func Benchmark_Ahmetb_Concat(b *testing.B) {
+	q1 := ahmetb.From(intData)
+	q2 := ahmetb.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var res []int
+		q1.Concat(q2).ToSlice(&res)
+	}
+}
+
+// Benchmark_Lo_Concat 测试 lo 库的合并性能
+func Benchmark_Lo_Concat(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = lo.Flatten([][]int{intData, intDataOther})
+	}
+}
+
+// Benchmark_Native_Concat 测试原生 Go append 的合并性能
+func Benchmark_Native_Concat(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		res := make([]int, 0, len(intData)+len(intDataOther))
+		res = append(res, intData...)
+		res = append(res, intDataOther...)
+		_ = res
+	}
+}
+
+// --- 基准测试: 交集 (Intersect) ---
+
+// Benchmark_LiveXY_Intersect 测试 LiveXY 库的交集性能
+func Benchmark_LiveXY_Intersect(b *testing.B) {
+	q1 := livexy.From(intData)
+	q2 := livexy.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = q1.Intersect(q2).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY2_Intersect 测试使用 LiveXY.Distinct 的自定义键去重性能
+func Benchmark_LiveXY2_Intersect(b *testing.B) {
+	q1 := livexy.From(intData)
+	q2 := livexy.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.IntersectSelect(q1, q2, func(i int) int {
+			return i
+		}).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY3_Intersect 测试使用 LiveXY.Intersect 的交集性能
+func Benchmark_LiveXY3_Intersect(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Intersect(intData, intDataOther)
+	}
+}
+
+// Benchmark_Ahmetb_Intersect 测试 go-linq (ahmetb) 库的交集性能
+func Benchmark_Ahmetb_Intersect(b *testing.B) {
+	q1 := ahmetb.From(intData)
+	q2 := ahmetb.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var res []int
+		q1.Intersect(q2).ToSlice(&res)
+	}
+}
+
+// Benchmark_Lo_Intersect 测试 lo 库的交集性能
+func Benchmark_Lo_Intersect(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = lo.Intersect(intData, intDataOther)
+	}
+}
+
+// Benchmark_Native_Intersect 测试原生 Go 使用 map 的交集性能
+func Benchmark_Native_Intersect(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		set := make(map[int]struct{}, len(intData))
+		for _, v := range intData {
+			set[v] = struct{}{}
+		}
+		var res []int
+		for _, v := range intDataOther {
+			if _, ok := set[v]; ok {
+				res = append(res, v)
+			}
+		}
+		_ = res
+	}
+}
+
+// --- 基准测试: 差集 (Except) ---
+
+// Benchmark_LiveXY_Except 测试 LiveXY 库的差集性能
+func Benchmark_LiveXY_Except(b *testing.B) {
+	q1 := livexy.From(intData)
+	q2 := livexy.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = q1.Except(q2).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY2_Except 测试使用 LiveXY.Distinct 的自定义键去重性能
+func Benchmark_LiveXY2_Except(b *testing.B) {
+	q1 := livexy.From(intData)
+	q2 := livexy.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.ExceptSelect(q1, q2, func(i int) int {
+			return i
+		}).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY3_Except 测试使用 LiveXY.Intersect 的交集性能
+func Benchmark_LiveXY3_Except(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = livexy.Difference(intData, intDataOther)
+	}
+}
+
+// Benchmark_Ahmetb_Except 测试 go-linq (ahmetb) 库的差集性能
+func Benchmark_Ahmetb_Except(b *testing.B) {
+	q1 := ahmetb.From(intData)
+	q2 := ahmetb.From(intDataOther)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var res []int
+		q1.Except(q2).ToSlice(&res)
+	}
+}
+
+// Benchmark_Lo_Except 测试 lo 库的差集性能 (Difference 只取左差集)
+func Benchmark_Lo_Except(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		left, _ := lo.Difference(intData, intDataOther)
+		_ = left
+	}
+}
+
+// Benchmark_Native_Except 测试原生 Go 实现的差集性能
+func Benchmark_Native_Except(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		set := make(map[int]struct{}, len(intDataOther))
+		for _, v := range intDataOther {
+			set[v] = struct{}{}
+		}
+		var res []int
+		for _, v := range intData {
+			if _, ok := set[v]; !ok {
+				res = append(res, v)
+			}
+		}
+		_ = res
+	}
+}
+
+// --- 基准测试: 反转 (Reverse) ---
+
+// Benchmark_LiveXY_Reverse 测试 LiveXY 库的链式反转性能
+func Benchmark_LiveXY_Reverse(b *testing.B) {
+	q := livexy.From(intData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = q.Reverse().ToSlice()
+	}
+}
+
+// Benchmark_LiveXY2_Reverse 测试 LiveXY 库的静态反转性能
+func Benchmark_LiveXY2_Reverse(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Reverse(intData)
+	}
+}
+
+// Benchmark_Ahmetb_Reverse 测试 go-linq (ahmetb) 库的反转性能
+func Benchmark_Ahmetb_Reverse(b *testing.B) {
+	q := ahmetb.From(intData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var res []int
+		q.Reverse().ToSlice(&res)
+	}
+}
+
+// Benchmark_Lo_Reverse 测试 lo 库的反转性能
+func Benchmark_Lo_Reverse(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = lo.Reverse(intData)
+	}
+}
+
+// Benchmark_Native_Reverse 测试原生 Go 实现的反转性能
+func Benchmark_Native_Reverse(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		res := make([]int, len(intData))
+		n := len(intData)
+		for j := 0; j < n; j++ {
+			res[j] = intData[n-1-j]
+		}
+		_ = res
+	}
+}
+
+// Benchmark_Native_Inplace_Reverse 测试原生 Go 原地反转性能
+func Benchmark_Native_Inplace_Reverse(b *testing.B) {
+	data := make([]int, len(intData))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(data, intData) // 每次为了测试原地性能，必须先还原数据
+		n := len(data)
+		for j := 0; j < n/2; j++ {
+			data[j], data[n-1-j] = data[n-1-j], data[j]
+		}
+	}
+}
+
+// Benchmark_Lo_Clone_Reverse 测试 lo 库带拷贝的反转性能 (为了公平对比)
+func Benchmark_Lo_Clone_Reverse(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		data := make([]int, len(intData))
+		copy(data, intData)
+		_ = lo.Reverse(data)
+	}
+}
+
+// --- 基准测试: 随机洗牌 (Shuffle) ---
+
+// Benchmark_LiveXY_Shuffle 测试 LiveXY 库的随机洗牌性能 (含拷贝)
+func Benchmark_LiveXY_Shuffle(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Shuffle(intData)
+	}
+}
+
+// Benchmark_Lo_Shuffle 测试 lo 库的随机洗牌性能 (原地修改)
+func Benchmark_Lo_Shuffle(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = lo.Shuffle(intData)
+	}
+}
+
+// Benchmark_Native_Shuffle 测试原生 Go 实现的随机洗牌性能 (含拷贝)
+func Benchmark_Native_Shuffle(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		res := make([]int, len(intData))
+		copy(res, intData)
+		rand.Shuffle(len(res), func(i, j int) {
+			res[i], res[j] = res[j], res[i]
+		})
+		_ = res
 	}
 }
