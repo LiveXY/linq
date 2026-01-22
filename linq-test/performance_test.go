@@ -3,6 +3,7 @@ package linq_benchmark
 import (
 	"fmt"
 	"math/rand"
+	"slices"
 	"sort"
 	"testing"
 
@@ -48,6 +49,8 @@ func init() {
 		intSubset[i] = rand.Intn(size) // 随机在 0 到 size-1 之间取值
 	}
 
+	fmt.Println(len(intData), len(intSubset))
+
 	duplicateData = make([]int, size)
 	for i := 0; i < size; i++ {
 		duplicateData[i] = i % 1000 // 重复出现 0-999（1000个唯一项，重复100次）
@@ -71,6 +74,25 @@ func Benchmark_LiveXY_Where(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = query.Where(func(i int) bool {
 			return i%2 == 0
+		}).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY2_Where 测试 LiveXY 库的过滤性能
+func Benchmark_LiveXY2_Where(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Where(intData, func(i int) bool {
+			return i%2 == 0
+		})
+	}
+}
+
+// Benchmark_LiveXY3_Where 测试 LiveXY 库的过滤性能
+func Benchmark_LiveXY3_Where(b *testing.B) {
+	var query = livexy.From(intData)
+	for i := 0; i < b.N; i++ {
+		_ = livexy.WhereSelect(query, func(i int) (int, bool) {
+			return i, i%2 == 0
 		}).ToSlice()
 	}
 }
@@ -122,6 +144,15 @@ func Benchmark_LiveXY_Select(b *testing.B) {
 	}
 }
 
+// Benchmark_LiveXY2_Select 测试 LiveXY 库的映射性能
+func Benchmark_LiveXY2_Select(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Map(intData, func(i int) int {
+			return i * 2
+		})
+	}
+}
+
 // Benchmark_Ahmetb_Select 测试 go-linq (ahmetb) 库的映射性能
 func Benchmark_Ahmetb_Select(b *testing.B) {
 	query := ahmetb.From(intData)
@@ -166,6 +197,28 @@ func Benchmark_LiveXY_Chain(b *testing.B) {
 		_ = livexy.Select(q, func(i int) int {
 			return i * 2
 		}).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY2_Chain 测试 LiveXY 库的链式调用 (过滤+映射) 性能
+func Benchmark_LiveXY2_Chain(b *testing.B) {
+	query := livexy.From(intData)
+	for i := 0; i < b.N; i++ {
+		_ = livexy.WhereSelect(query, func(i int) (int, bool) {
+			return i * 2, i%2 == 0
+		}).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY3_Chain 测试 LiveXY 库的链式调用性能
+func Benchmark_LiveXY3_Chain(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		filtered := livexy.Where(intData, func(i int) bool {
+			return i%2 == 0
+		})
+		_ = livexy.Map(filtered, func(i int) int {
+			return i * 2
+		})
 	}
 }
 
@@ -221,6 +274,18 @@ func Benchmark_LiveXY_Struct(b *testing.B) {
 		livexy.Select(q, func(u User) string {
 			return u.Name
 		}).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY2_Struct 测试 LiveXY 库处理结构体切片的性能
+func Benchmark_LiveXY2_Struct(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		filtered := livexy.Where(userList, func(u User) bool {
+			return u.Age > 18
+		})
+		livexy.Map(filtered, func(u User) string {
+			return u.Name
+		})
 	}
 }
 
@@ -296,6 +361,18 @@ func Benchmark_Native_Sort(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		copy(smallData, userList[:1000])
 		sort.Slice(smallData, func(i, j int) bool { return smallData[i].Age < smallData[j].Age })
+	}
+}
+
+// Benchmark_Slices_Sort 测试原生 Go slices.SortFunc 的排序性能 (Go 1.21+)
+func Benchmark_Slices_Sort(b *testing.B) {
+	smallData := make([]User, 1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(smallData, userList[:1000])
+		slices.SortFunc(smallData, func(a, b User) int {
+			return a.Age - b.Age
+		})
 	}
 }
 
@@ -570,6 +647,58 @@ func Benchmark_Native_Some(b *testing.B) {
 	}
 }
 
+// --- 基准测试: 是否都不包含 (None) ---
+
+// Benchmark_LiveXY_None 测试 LiveXY 库的 None 性能
+// None 的逻辑是：集合 A 中没有任何元素属于集合 B。
+// 等价于 !Some(A, B)
+func Benchmark_LiveXY_None(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.None(intData, intSubset)
+	}
+}
+
+// Benchmark_Ahmetb_None 测试 go-linq (ahmetb) 库的 None 性能 (组合实现)
+func Benchmark_Ahmetb_None(b *testing.B) {
+	b.ResetTimer()
+	var q = ahmetb.From(intSubset)
+	for i := 0; i < b.N; i++ {
+		// All 返回 true 如果 predicate 对所有元素都为 true
+		// 这里 predicate 是 "不包含"，所以 All(不包含) == None(包含)
+		_ = q.All(func(i interface{}) bool {
+			return !ahmetb.From(intData).Contains(i)
+		})
+	}
+}
+
+// Benchmark_Lo_None 测试 lo 库的 None 性能
+func Benchmark_Lo_None(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = lo.None(intData, intSubset)
+	}
+}
+
+// Benchmark_Native_None 测试原生 Go 实现的 None 性能
+func Benchmark_Native_None(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		set := make(map[int]struct{}, len(intData))
+		for _, v := range intData {
+			set[v] = struct{}{}
+		}
+		none := true
+		for _, v := range intSubset {
+			if _, ok := set[v]; ok {
+				none = false
+				break
+			}
+		}
+		_ = none
+	}
+}
+
 // --- 基准测试: 合并 (Concat) ---
 
 // Benchmark_LiveXY_Concat 测试 LiveXY 库的合并性能
@@ -579,6 +708,14 @@ func Benchmark_LiveXY_Concat(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = q1.Concat(q2).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY2_Concat 测试 LiveXY 库的合并性能
+func Benchmark_LiveXY2_Concat(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.Concat(intData, intDataOther)
 	}
 }
 
@@ -764,6 +901,14 @@ func Benchmark_LiveXY2_Reverse(b *testing.B) {
 	}
 }
 
+// Benchmark_LiveXY3_Reverse 测试 LiveXY 库的静态反转性能
+func Benchmark_LiveXY3_Reverse(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = livexy.CloneReverse(intData)
+	}
+}
+
 // Benchmark_Ahmetb_Reverse 测试 go-linq (ahmetb) 库的反转性能
 func Benchmark_Ahmetb_Reverse(b *testing.B) {
 	q := ahmetb.From(intData)
@@ -841,5 +986,86 @@ func Benchmark_Native_Shuffle(b *testing.B) {
 			res[i], res[j] = res[j], res[i]
 		})
 		_ = res
+	}
+}
+
+// --- 实验性: 优化版 Some ---
+
+// SomeOptimized 是尝试引入启发式算法的 Some 实现
+func SomeOptimized[T comparable](collection []T, subset []T) bool {
+	n1 := len(collection)
+	n2 := len(subset)
+
+	if n1 == 0 || n2 == 0 {
+		return false
+	}
+
+	// 1. 小数据量直接暴力 (Threshold = 128)
+	if n1 < 128 || n2 < 128 {
+		for _, v := range collection {
+			for _, s := range subset {
+				if v == s {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// 2. 启发式：尝试快速命中
+	// 检查 collection 的前 K 个元素是否在 subset 中。
+	const speculationLimit = 50
+	limit := speculationLimit
+	if n1 < limit {
+		limit = n1
+	}
+
+	// 提前进行少量双重循环扫描，期望在高命中率场景下快速返回
+	for i := 0; i < limit; i++ {
+		v := collection[i]
+		for _, s := range subset {
+			if v == s {
+				return true
+			}
+		}
+	}
+
+	// 3. 回退策略：构建 Map (Set)
+	// 总是对较小的集合构建 Map
+	if n1 < n2 {
+		set := make(map[T]struct{}, n1)
+		for _, v := range collection {
+			set[v] = struct{}{}
+		}
+		for _, v := range subset {
+			if _, ok := set[v]; ok {
+				return true
+			}
+		}
+	} else {
+		set := make(map[T]struct{}, n2)
+		for _, v := range subset {
+			set[v] = struct{}{}
+		}
+		// 跳过已检查的部分
+		start := speculationLimit
+		if start > n1 {
+			start = n1
+		}
+		for i := start; i < n1; i++ {
+			if _, ok := set[collection[i]]; ok {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// Benchmark_LiveXY_Optimized_Some 测试 LiveXY 库的 Some 性能 (优化版)
+func Benchmark_LiveXY_Optimized_Some(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = SomeOptimized(intData, intSubset)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"context"
 	"math/rand/v2"
 	"slices"
-	"sort"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -33,70 +32,65 @@ type Complex interface {
 
 // HasOrder 判断查询目前是否已定义排序规则
 func (q Query[T]) HasOrder() bool {
-	return q.lesser != nil
+	return q.compare != nil
 }
 
 // OrderBy 指定主要排序键，按升序对序列元素进行排序
 func OrderBy[T comparable, K cmp.Ordered](q Query[T], key func(t T) K) Query[T] {
-	return orderByLesser(q, func(data []T) func(i, j int) bool {
-		return func(i, j int) bool {
-			return key(data[i]) < key(data[j])
-		}
+	return orderBy(q, func(a, b T) int {
+		return cmp.Compare(key(a), key(b))
 	})
 }
 
 // OrderByDescending 指定主要排序键，按降序对序列元素进行排序
 func OrderByDescending[T comparable, K cmp.Ordered](q Query[T], key func(t T) K) Query[T] {
-	return orderByLesser(q, func(data []T) func(i, j int) bool {
-		return func(i, j int) bool {
-			return key(data[i]) > key(data[j])
-		}
+	return orderBy(q, func(a, b T) int {
+		return cmp.Compare(key(b), key(a)) // 降序关键：b 与 a 比较
 	})
 }
 
 // ThenBy 指定次要排序键，按升序对序列元素进行后续排序
 // 必须在 OrderBy 或 OrderByDescending 之后调用
 func ThenBy[T comparable, K cmp.Ordered](q Query[T], key func(t T) K) Query[T] {
-	lesser := q.lesser
-	return orderByLesser(q, chainLessers(lesser, func(data []T) func(i, j int) bool {
-		return func(i, j int) bool {
-			return key(data[i]) < key(data[j])
-		}
-	}))
+	nextCmp := func(a, b T) int {
+		return cmp.Compare(key(a), key(b))
+	}
+	return orderBy(q, chainComparisons(q.compare, nextCmp))
 }
 
 // ThenByDescending 指定次要排序键，按降序对序列元素进行后续排序
 // 必须在 OrderBy 或 OrderByDescending 之后调用
 func ThenByDescending[T comparable, K cmp.Ordered](q Query[T], key func(t T) K) Query[T] {
-	lesser := q.lesser
-	return orderByLesser(q, chainLessers(lesser, func(data []T) func(i, j int) bool {
-		return func(i, j int) bool {
-			return key(data[i]) > key(data[j])
-		}
-	}))
+	nextCmp := func(a, b T) int {
+		return cmp.Compare(key(b), key(a))
+	}
+	return orderBy(q, chainComparisons(q.compare, nextCmp))
 }
 
-func chainLessers[T comparable](a, b lesserFunc[T]) lesserFunc[T] {
-	return func(data []T) func(i, j int) bool {
-		a, b := a(data), b(data)
-		return func(i, j int) bool {
-			return a(i, j) || !a(j, i) && b(i, j)
+// 链式组合比较器
+func chainComparisons[T comparable](a, b compareFunc[T]) compareFunc[T] {
+	return func(x, y T) int {
+		if r := a(x, y); r != 0 {
+			return r
 		}
+		return b(x, y)
 	}
 }
-func orderByLesser[T comparable](q Query[T], lesser lesserFunc[T]) Query[T] {
+
+// 核心排序执行函数
+func orderBy[T comparable](q Query[T], cmpFn compareFunc[T]) Query[T] {
 	return Query[T]{
-		lesser: lesser,
+		compare: cmpFn,
 		iterate: func() func() (T, bool) {
 			data := q.ToSlice()
-			sort.Slice(data, lesser(data))
+			slices.SortFunc(data, cmpFn)
 			return From(data).iterate()
 		},
 		capacity: q.capacity,
 	}
 }
 
-type lesserFunc[T comparable] func([]T) func(i, j int) bool
+type compareFunc[T comparable] func(a, b T) int
 
 // KV 键值对结构体，用于存储分组等操作的结果
 type KV[K, V comparable] struct {
@@ -106,7 +100,7 @@ type KV[K, V comparable] struct {
 
 // Query 查询结构体，是 LINQ 操作的核心类型
 type Query[T comparable] struct {
-	lesser    lesserFunc[T]
+	compare   compareFunc[T]
 	iterate   func() func() (T, bool)
 	fastSlice []T
 	fastWhere func(T) bool
@@ -2663,42 +2657,10 @@ func EveryBigData[T comparable](list []T, subset []T) bool {
 	return true
 }
 
-// Some 判断集合中包含子集中的至少有一个元素
-func Some[T comparable](list, subset []T) bool {
-	n, m := len(list), len(subset)
-	if n == 0 || m == 0 {
-		return false
-	}
-	// 如果子集相对较大 (M > 80)
-	// 或者在 N 较大时，M 也达到了一定量级 (N*M > 15万 且 M > 30)
-	if m > 80 || (n > 5000 && m > 30) {
-		return SomeBigData(list, subset)
-	}
-	// 小规模数据 (NM < 10000) -> 选线性 (无内存分配)
-	return SomeSmallData(list, subset)
-}
-
 // Some 判断集合中包含子集中的至少有一个元素 适用于少数据
-func SomeSmallData[T comparable](list, subset []T) bool {
+func Some[T comparable](list, subset []T) bool {
 	for i := range subset {
 		if Contains(list, subset[i]) {
-			return true
-		}
-	}
-	return false
-}
-
-// Some 判断集合中包含子集中的至少有一个元素 适用于大数据
-func SomeBigData[T comparable](list []T, subset []T) bool {
-	if len(subset) == 0 || len(list) == 0 {
-		return false
-	}
-	seen := make(map[T]struct{}, len(list))
-	for _, elem := range list {
-		seen[elem] = struct{}{}
-	}
-	for _, elem := range subset {
-		if _, ok := seen[elem]; ok {
 			return true
 		}
 	}
@@ -2707,40 +2669,8 @@ func SomeBigData[T comparable](list []T, subset []T) bool {
 
 // None 判断集合中不包含子集的任何元素
 func None[T comparable](list, subset []T) bool {
-	n, m := len(list), len(subset)
-	if n == 0 || m == 0 {
-		return true
-	}
-	// 如果子集够大，哈希永远是赢家 (复杂度 O(N+M) vs O(N*M))
-	// 或者主集合很大，需要子集也有一定规模才值得建表
-	if m > 100 || n > 3000 && m > 50 {
-		return NoneBigData(list, subset)
-	}
-	// 小规模或极小子集场景：线性搜索最快且零内存分配
-	return NoneSmallData(list, subset)
-}
-
-// None 判断集合中不包含子集的任何元素
-func NoneSmallData[T comparable](list, subset []T) bool {
 	for i := range subset {
 		if Contains(list, subset[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// None 判断集合中不包含子集的任何元素 适用于大数据
-func NoneBigData[T comparable](list []T, subset []T) bool {
-	if len(subset) == 0 || len(list) == 0 {
-		return true
-	}
-	seen := make(map[T]struct{}, len(list))
-	for _, elem := range list {
-		seen[elem] = struct{}{}
-	}
-	for _, elem := range subset {
-		if _, ok := seen[elem]; ok {
 			return false
 		}
 	}

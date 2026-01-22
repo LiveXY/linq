@@ -481,7 +481,6 @@ func BenchmarkTerminalOps(b *testing.B) {
 		// 针对 Every/Some/None 的不同数据路径
 		small := []int{10}
 		Every(data, small)
-		SomeSmallData(data, small)
-		NoneBigData(data, small)
+		Some(data, small)
 	}
 }
