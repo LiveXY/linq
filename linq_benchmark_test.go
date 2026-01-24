@@ -1,3 +1,5 @@
+// go test -bench=Benchmark -benchmem linq_benchmark_test.go linq.go
+
 package linq
 
 import (
@@ -482,5 +484,70 @@ func BenchmarkTerminalOps(b *testing.B) {
 		small := []int{10}
 		Every(data, small)
 		Some(data, small)
+	}
+}
+
+// BenchmarkOrderedQuery_Sort 基准测试：新版高性能排序 (Single)
+func BenchmarkOrderedQuery_Sort(b *testing.B) {
+	data := makeRange(0, 1000)
+	// 乱序
+	for i := 0; i < len(data)/2; i++ {
+		data[i], data[len(data)-1-i] = data[len(data)-1-i], data[i]
+	}
+	q := From(data)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.Order(Asc(func(i int) int { return i })).ToSlice()
+	}
+}
+
+// BenchmarkOrderedQuery_Then 基准测试：新版高性能多级排序 (Then)
+func BenchmarkOrderedQuery_Then(b *testing.B) {
+	data := makeRange(0, 1000)
+	q := From(data)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.Order(Asc(func(i int) int { return i })).
+			Then(Desc(func(i int) int { return i })).
+			ToSlice()
+	}
+}
+
+// BenchmarkOrderedQuery_Operations 基准测试：排序后的操作 (Take, Where)
+func BenchmarkOrderedQuery_Operations(b *testing.B) {
+	data := makeRange(0, 1000)
+	q := From(data)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Take 触发全量排序后切片 (目前实现)
+		q.Order(Asc(func(i int) int { return i })).Take(10).ToSlice()
+
+		// Where 触发全量排序后过滤
+		q.Order(Asc(func(i int) int { return i })).Where(func(i int) bool { return i%2 == 0 }).ToSlice()
+	}
+}
+
+// BenchmarkOrderedQuery_First 基准测试：排序后取第一个 (O(N) 优化验证)
+func BenchmarkOrderedQuery_First(b *testing.B) {
+	data := makeRange(0, 10000) // 较大数据量以突显 O(N) vs O(N log N) 差异
+	for i := 0; i < len(data)/2; i++ {
+		data[i], data[len(data)-1-i] = data[len(data)-1-i], data[i]
+	}
+	q := From(data)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.Order(Asc(func(i int) int { return i })).First()
+	}
+}
+
+// BenchmarkOrderedQuery_Reverse 基准测试：排序后反转 (Zero-Allocation 验证)
+func BenchmarkOrderedQuery_Reverse(b *testing.B) {
+	data := makeRange(0, 1000)
+	q := From(data)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Reverse 仅包装比较器，不执行排序，消耗极低
+		// 为了触发实际工作，我们调用 ToSlice
+		q.Order(Asc(func(i int) int { return i })).Reverse().ToSlice()
 	}
 }

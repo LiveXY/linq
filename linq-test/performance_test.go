@@ -1,3 +1,5 @@
+// go test -bench=Benchmark -benchmem .
+// go test -bench=Sort -benchmem .
 package linq_benchmark
 
 import (
@@ -27,9 +29,10 @@ var (
 
 // User 定义测试用的结构体
 type User struct {
-	ID   int
-	Name string
-	Age  int
+	ID     int
+	Name   string
+	Age    int
+	Gender int
 }
 
 // 初始化测试数据，包括整数序列、重复数据和结构体切片
@@ -59,9 +62,10 @@ func init() {
 	userList = make([]User, size)
 	for i := 0; i < size; i++ {
 		userList[i] = User{
-			ID:   i,
-			Name: fmt.Sprintf("用户%d", i),
-			Age:  rand.Intn(100),
+			ID:     i,
+			Name:   fmt.Sprintf("用户%d", i),
+			Age:    rand.Intn(100),
+			Gender: rand.Intn(2),
 		}
 	}
 }
@@ -330,7 +334,7 @@ func Benchmark_Native_Struct(b *testing.B) {
 // --- 基准测试: 结构体排序 (OrderBy) ---
 
 // Benchmark_LiveXY_Sort 测试 LiveXY 库的排序性能
-func Benchmark_LiveXY_Sort(b *testing.B) {
+func Benchmark_LiveXY_OneSort(b *testing.B) {
 	smallData := userList[:1000]
 	q := livexy.From(smallData)
 	b.ResetTimer()
@@ -341,8 +345,20 @@ func Benchmark_LiveXY_Sort(b *testing.B) {
 	}
 }
 
+// Benchmark_New_OneSort 测试新实现 (Query2) 的单级排序性能
+func Benchmark_New_OneSort(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.Order(livexy.Asc(func(u User) int {
+			return u.Age
+		})).ToSlice()
+	}
+}
+
 // Benchmark_Ahmetb_Sort 测试 go-linq (ahmetb) 库的排序性能
-func Benchmark_Ahmetb_Sort(b *testing.B) {
+func Benchmark_Ahmetb_OneSort(b *testing.B) {
 	smallData := userList[:1000]
 	query := ahmetb.From(smallData)
 	b.ResetTimer()
@@ -355,7 +371,7 @@ func Benchmark_Ahmetb_Sort(b *testing.B) {
 }
 
 // Benchmark_Native_Sort 测试原生 Go sort.Slice 的排序性能
-func Benchmark_Native_Sort(b *testing.B) {
+func Benchmark_Native_OneSort(b *testing.B) {
 	smallData := make([]User, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -365,13 +381,174 @@ func Benchmark_Native_Sort(b *testing.B) {
 }
 
 // Benchmark_Slices_Sort 测试原生 Go slices.SortFunc 的排序性能 (Go 1.21+)
-func Benchmark_Slices_Sort(b *testing.B) {
+func Benchmark_Slices_OneSort(b *testing.B) {
 	smallData := make([]User, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		copy(smallData, userList[:1000])
 		slices.SortFunc(smallData, func(a, b User) int {
 			return a.Age - b.Age
+		})
+	}
+}
+
+// Benchmark_LiveXY_Sort_Double 测试 LiveXY 库的二级排序性能 (Age -> Gender)
+func Benchmark_LiveXY_TwoSort(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q2 := livexy.OrderBy(q, func(u User) int {
+			return u.Age
+		})
+		livexy.ThenBy(q2, func(u User) int {
+			return u.Gender
+		}).ToSlice()
+	}
+}
+
+// Benchmark_New_TwoSort 测试新实现 (Query2) 的二级排序性能
+func Benchmark_New_TwoSort(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.Order(livexy.Asc(func(u User) int {
+			return u.Age
+		})).Then(livexy.Asc(func(u User) int {
+			return u.Gender
+		})).ToSlice()
+	}
+}
+
+// Benchmark_Ahmetb_Sort_Double 测试 go-linq (ahmetb) 库的二级排序性能
+func Benchmark_Ahmetb_TwoSort(b *testing.B) {
+	smallData := userList[:1000]
+	query := ahmetb.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var res []User
+		query.OrderBy(func(i interface{}) interface{} {
+			return i.(User).Age
+		}).ThenBy(func(i interface{}) interface{} {
+			return i.(User).Gender
+		}).ToSlice(&res)
+	}
+}
+
+// Benchmark_Native_Sort_Double 测试原生 Go sort.Slice 的二级排序性能
+func Benchmark_Native_TwoSort(b *testing.B) {
+	smallData := make([]User, 1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(smallData, userList[:1000])
+		sort.Slice(smallData, func(i, j int) bool {
+			if smallData[i].Age != smallData[j].Age {
+				return smallData[i].Age < smallData[j].Age
+			}
+			return smallData[i].Gender < smallData[j].Gender
+		})
+	}
+}
+
+// Benchmark_Slices_Sort_Double 测试原生 Go slices.SortFunc 的二级排序性能
+func Benchmark_Slices_TwoSort(b *testing.B) {
+	smallData := make([]User, 1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(smallData, userList[:1000])
+		slices.SortFunc(smallData, func(a, b User) int {
+			if a.Age != b.Age {
+				return a.Age - b.Age
+			}
+			return a.Gender - b.Gender
+		})
+	}
+}
+
+// Benchmark_LiveXY_ThreeSort 测试 LiveXY 库的三级排序性能 (Age -> Gender -> ID)
+func Benchmark_LiveXY_ThreeSort(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q2 := livexy.OrderBy(q, func(u User) int {
+			return u.Age
+		})
+		q3 := livexy.ThenBy(q2, func(u User) int {
+			return u.Gender
+		})
+		livexy.ThenBy(q3, func(u User) int {
+			return u.ID
+		}).ToSlice()
+	}
+}
+
+// Benchmark_New_ThreeSort 测试新实现 (Query) 的三级排序性能
+func Benchmark_New_ThreeSort(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.Order(livexy.Asc(func(u User) int {
+			return u.Age
+		})).Then(livexy.Asc(func(u User) int {
+			return u.Gender
+		})).Then(livexy.Asc(func(u User) int {
+			return u.ID
+		})).ToSlice()
+	}
+}
+
+// Benchmark_Ahmetb_ThreeSort 测试 go-linq (ahmetb) 库的三级排序性能
+func Benchmark_Ahmetb_ThreeSort(b *testing.B) {
+	smallData := userList[:1000]
+	query := ahmetb.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var res []User
+		query.OrderBy(func(i interface{}) interface{} {
+			return i.(User).Age
+		}).ThenBy(func(i interface{}) interface{} {
+			return i.(User).Gender
+		}).ThenBy(func(i interface{}) interface{} {
+			return i.(User).ID
+		}).ToSlice(&res)
+	}
+}
+
+// Benchmark_Native_ThreeSort 测试原生 Go sort.Slice 的三级排序性能
+func Benchmark_Native_ThreeSort(b *testing.B) {
+	smallData := make([]User, 1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(smallData, userList[:1000])
+		sort.Slice(smallData, func(i, j int) bool {
+			if smallData[i].Age != smallData[j].Age {
+				return smallData[i].Age < smallData[j].Age
+			}
+			if smallData[i].Gender != smallData[j].Gender {
+				return smallData[i].Gender < smallData[j].Gender
+			}
+			return smallData[i].ID < smallData[j].ID
+		})
+	}
+}
+
+// Benchmark_Slices_ThreeSort 测试原生 Go slices.SortFunc 的三级排序性能
+func Benchmark_Slices_ThreeSort(b *testing.B) {
+	smallData := make([]User, 1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(smallData, userList[:1000])
+		slices.SortFunc(smallData, func(a, b User) int {
+			if a.Age != b.Age {
+				return a.Age - b.Age
+			}
+			if a.Gender != b.Gender {
+				return a.Gender - b.Gender
+			}
+			return a.ID - b.ID
 		})
 	}
 }
@@ -647,11 +824,91 @@ func Benchmark_Native_Some(b *testing.B) {
 	}
 }
 
+// --- 实验性: 优化版 Some ---
+
+// SomeOptimized 是尝试引入启发式算法的 Some 实现
+func SomeOptimized[T comparable](collection []T, subset []T) bool {
+	n1 := len(collection)
+	n2 := len(subset)
+
+	if n1 == 0 || n2 == 0 {
+		return false
+	}
+
+	// 1. 小数据量直接暴力 (Threshold = 128)
+	if n1 < 128 || n2 < 128 {
+		for _, v := range collection {
+			for _, s := range subset {
+				if v == s {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// 2. 启发式：尝试快速命中
+	// 检查 collection 的前 K 个元素是否在 subset 中。
+	const speculationLimit = 50
+	limit := speculationLimit
+	if n1 < limit {
+		limit = n1
+	}
+
+	// 提前进行少量双重循环扫描，期望在高命中率场景下快速返回
+	for i := 0; i < limit; i++ {
+		v := collection[i]
+		for _, s := range subset {
+			if v == s {
+				return true
+			}
+		}
+	}
+
+	// 3. 回退策略：构建 Map (Set)
+	// 总是对较小的集合构建 Map
+	if n1 < n2 {
+		set := make(map[T]struct{}, n1)
+		for _, v := range collection {
+			set[v] = struct{}{}
+		}
+		for _, v := range subset {
+			if _, ok := set[v]; ok {
+				return true
+			}
+		}
+	} else {
+		set := make(map[T]struct{}, n2)
+		for _, v := range subset {
+			set[v] = struct{}{}
+		}
+		// 跳过已检查的部分
+		start := speculationLimit
+		if start > n1 {
+			start = n1
+		}
+		for i := start; i < n1; i++ {
+			if _, ok := set[collection[i]]; ok {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// Benchmark_LiveXY_Optimized_Some 测试 LiveXY 库的 Some 性能 (优化版)
+func Benchmark_LiveXY_Optimized_Some(b *testing.B) {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = SomeOptimized(intData, intSubset)
+	}
+}
+
 // --- 基准测试: 是否都不包含 (None) ---
 
 // Benchmark_LiveXY_None 测试 LiveXY 库的 None 性能
 // None 的逻辑是：集合 A 中没有任何元素属于集合 B。
-// 等价于 !Some(A, B)
 func Benchmark_LiveXY_None(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -986,86 +1243,5 @@ func Benchmark_Native_Shuffle(b *testing.B) {
 			res[i], res[j] = res[j], res[i]
 		})
 		_ = res
-	}
-}
-
-// --- 实验性: 优化版 Some ---
-
-// SomeOptimized 是尝试引入启发式算法的 Some 实现
-func SomeOptimized[T comparable](collection []T, subset []T) bool {
-	n1 := len(collection)
-	n2 := len(subset)
-
-	if n1 == 0 || n2 == 0 {
-		return false
-	}
-
-	// 1. 小数据量直接暴力 (Threshold = 128)
-	if n1 < 128 || n2 < 128 {
-		for _, v := range collection {
-			for _, s := range subset {
-				if v == s {
-					return true
-				}
-			}
-		}
-		return false
-	}
-
-	// 2. 启发式：尝试快速命中
-	// 检查 collection 的前 K 个元素是否在 subset 中。
-	const speculationLimit = 50
-	limit := speculationLimit
-	if n1 < limit {
-		limit = n1
-	}
-
-	// 提前进行少量双重循环扫描，期望在高命中率场景下快速返回
-	for i := 0; i < limit; i++ {
-		v := collection[i]
-		for _, s := range subset {
-			if v == s {
-				return true
-			}
-		}
-	}
-
-	// 3. 回退策略：构建 Map (Set)
-	// 总是对较小的集合构建 Map
-	if n1 < n2 {
-		set := make(map[T]struct{}, n1)
-		for _, v := range collection {
-			set[v] = struct{}{}
-		}
-		for _, v := range subset {
-			if _, ok := set[v]; ok {
-				return true
-			}
-		}
-	} else {
-		set := make(map[T]struct{}, n2)
-		for _, v := range subset {
-			set[v] = struct{}{}
-		}
-		// 跳过已检查的部分
-		start := speculationLimit
-		if start > n1 {
-			start = n1
-		}
-		for i := start; i < n1; i++ {
-			if _, ok := set[collection[i]]; ok {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-// Benchmark_LiveXY_Optimized_Some 测试 LiveXY 库的 Some 性能 (优化版)
-func Benchmark_LiveXY_Optimized_Some(b *testing.B) {
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = SomeOptimized(intData, intSubset)
 	}
 }

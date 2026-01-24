@@ -1,3 +1,5 @@
+// go test -v linq_complete_test.go linq.go
+
 package linq
 
 import (
@@ -1489,4 +1491,156 @@ func TestLazyPaths(t *testing.T) {
 		}
 		return true
 	})
+}
+
+// ============================================================================
+// OrderedQuery 完整测试 (New Feature)
+// ============================================================================
+
+// TestOrderedQuery_Complete 测试 OrderedQuery 的排序和链式调用
+func TestOrderedQuery_Complete(t *testing.T) {
+	type Person struct {
+		Name string
+		Age  int
+		ID   int
+	}
+	// 数据准备: 乱序
+	people := []Person{
+		{"Alice", 30, 1},
+		{"Bob", 20, 2}, // Age min
+		{"Charlie", 30, 3},
+		{"David", 20, 4},
+		{"Eve", 25, 5},
+	}
+
+	// 1. Order (Asc) -> ID
+	// 期望: 1, 2, 3, 4, 5 (已经是ID序? wait, source ID is 1,2,3,4,5 but mixed in list logic? No, list is defined above)
+	// ID 顺序: 1, 2, 3, 4, 5.
+
+	// 2. Order (Age Asc) -> Then (Name Desc)
+	// Age: 20(Bob, David), 25(Eve), 30(Alice, Charlie)
+	// Age=20 Group: Then Name Desc: David, Bob
+	// Age=30 Group: Then Name Desc: Charlie, Alice
+	// 期望顺序: David(20,4), Bob(20,2), Eve(25,5), Charlie(30,3), Alice(30,1)
+
+	q := From(people).Order(Asc(func(p Person) int { return p.Age })).
+		Then(Desc(func(p Person) string { return p.Name }))
+
+	res := q.ToSlice()
+
+	expectedIDs := []int{4, 2, 5, 3, 1}
+	if len(res) != 5 {
+		t.Fatalf("OrderedQuery 长度错误: %d", len(res))
+	}
+	for i, p := range res {
+		if p.ID != expectedIDs[i] {
+			t.Errorf("索引 %d 排序错误: 期望ID %d, 实际ID %d (%s, %d)", i, expectedIDs[i], p.ID, p.Name, p.Age)
+		}
+	}
+
+	// 3. 测试 OrderByDescending (Age Desc) -> ThenBy (ID Asc)
+	// Age Desc: 30(Alice, Charlie), 25(Eve), 20(Bob, David)
+	// Age=30 Group: ID Asc -> Alice(1), Charlie(3)
+	// Age=20 Group: ID Asc -> Bob(2), David(4)
+	// 期望: Alice, Charlie, Eve, Bob, David (IDs: 1, 3, 5, 2, 4)
+
+	q2 := From(people).Order(Desc(func(p Person) int { return p.Age })).
+		Then(Asc(func(p Person) int { return p.ID }))
+	res2 := q2.ToSlice()
+
+	expectedIDs2 := []int{1, 3, 5, 2, 4}
+	for i, p := range res2 {
+		if p.ID != expectedIDs2[i] {
+			t.Errorf("索引 %d 排序错误 (Desc): 期望ID %d, 实际ID %d", i, expectedIDs2[i], p.ID)
+		}
+	}
+}
+
+// TestOrderedQuery_Operations 测试 OrderedQuery 的操作方法 (Take, Skip, Where...)
+func TestOrderedQuery_Operations(t *testing.T) {
+	// 数据: [5, 1, 4, 2, 3] -> Ordered -> [1, 2, 3, 4, 5]
+	nums := []int{5, 1, 4, 2, 3}
+	q := From(nums).Order(Asc(func(i int) int { return i }))
+
+	// Take
+	takeRes := q.Take(2).ToSlice() // [1, 2]
+	if len(takeRes) != 2 || takeRes[0] != 1 || takeRes[1] != 2 {
+		t.Errorf("Ordered Take 失败: %v", takeRes)
+	}
+
+	// Skip
+	skipRes := q.Skip(2).ToSlice() // [3, 4, 5]
+	if len(skipRes) != 3 || skipRes[0] != 3 {
+		t.Errorf("Ordered Skip 失败: %v", skipRes)
+	}
+
+	// Where (过滤偶数) -> [2, 4]
+	whereRes := q.Where(func(i int) bool { return i%2 == 0 }).ToSlice()
+	if len(whereRes) != 2 || whereRes[0] != 2 || whereRes[1] != 4 {
+		t.Errorf("Ordered Where 失败: %v", whereRes)
+	}
+
+	// TakeWhile (< 3) -> [1, 2]
+	twRes := q.TakeWhile(func(i int) bool { return i < 3 }).ToSlice()
+	if len(twRes) != 2 || twRes[1] != 2 {
+		t.Errorf("Ordered TakeWhile 失败: %v", twRes)
+	}
+
+	// SkipWhile (< 3) -> [3, 4, 5]
+	swRes := q.SkipWhile(func(i int) bool { return i < 3 }).ToSlice()
+	if len(swRes) != 3 || swRes[0] != 3 {
+		t.Errorf("Ordered SkipWhile 失败: %v", swRes)
+	}
+
+	// Distinct (假设源有重复: [5, 1, 1, 2] -> Order -> [1, 1, 2, 5] -> Distinct -> [1, 2, 5])
+	numsDup := []int{5, 1, 1, 2}
+	qDup := From(numsDup).Order(Asc(func(i int) int { return i }))
+	distinctRes := qDup.Distinct().ToSlice()
+	if len(distinctRes) != 3 || distinctRes[0] != 1 || distinctRes[1] != 2 || distinctRes[2] != 5 {
+		t.Errorf("Ordered Distinct 失败: %v", distinctRes)
+	}
+}
+
+// TestOrderedQuery_Traversal 测试 OrderedQuery 的遍历和聚合 (First, Last, ForEach)
+func TestOrderedQuery_Traversal(t *testing.T) {
+	// 数据: [3, 1, 2] -> Ordered -> [1, 2, 3]
+	nums := []int{3, 1, 2}
+	q := From(nums).Order(Asc(func(i int) int { return i }))
+
+	// First
+	if q.First() != 1 {
+		t.Errorf("Ordered First 期望 1, 实际 %d", q.First())
+	}
+
+	// Last
+	if q.Last() != 3 {
+		t.Errorf("Ordered Last 期望 3, 实际 %d", q.Last())
+	}
+
+	// FirstDefault
+	qEmpty := From([]int{}).Order(Asc(func(i int) int { return i }))
+	if qEmpty.FirstDefault(99) != 99 {
+		t.Errorf("Ordered FirstDefault 失败")
+	}
+
+	// IndexOf (找 2，位置索引应为 1)
+	if idx := q.IndexOf(func(i int) bool { return i == 2 }); idx != 1 {
+		t.Errorf("Ordered IndexOf 期望 1, 实际 %d", idx)
+	}
+
+	// ForEach
+	var res []int
+	q.ForEach(func(i int) bool {
+		res = append(res, i)
+		return true
+	})
+	if len(res) != 3 || res[0] != 1 || res[2] != 3 {
+		t.Errorf("Ordered ForEach 顺序错误: %v", res)
+	}
+
+	// Reverse
+	revRes := q.Reverse().ToSlice() // [3, 2, 1]
+	if revRes[0] != 3 || revRes[2] != 1 {
+		t.Errorf("Ordered Reverse 失败: %v", revRes)
+	}
 }

@@ -1,3 +1,5 @@
+// go test -v linq_test.go linq.go
+
 package linq
 
 import (
@@ -74,6 +76,17 @@ func TestOrder(t *testing.T) {
 	query = ThenBy(query, func(m *BMember) int { return m.Age })
 	out4 := query.ToSlice()
 	for _, v := range out4 {
+		fmt.Printf("%+v \n", v)
+	}
+}
+
+// TestOrder2 测试排序功能 (OrderBy, ThenBy)
+func TestOrder2(t *testing.T) {
+	out := From(members).
+		Order(Desc(func(m *BMember) int8 { return m.Sex })).
+		Then(Asc(func(m *BMember) int { return m.Age })).
+		ToSlice()
+	for _, v := range out {
 		fmt.Printf("%+v \n", v)
 	}
 }

@@ -52,6 +52,9 @@ func OrderByDescending[T comparable, K cmp.Ordered](q Query[T], key func(t T) K)
 // ThenBy 指定次要排序键，按升序对序列元素进行后续排序
 // 必须在 OrderBy 或 OrderByDescending 之后调用
 func ThenBy[T comparable, K cmp.Ordered](q Query[T], key func(t T) K) Query[T] {
+	if !q.HasOrder() {
+		return q
+	}
 	nextCmp := func(a, b T) int {
 		return cmp.Compare(key(a), key(b))
 	}
@@ -61,6 +64,9 @@ func ThenBy[T comparable, K cmp.Ordered](q Query[T], key func(t T) K) Query[T] {
 // ThenByDescending 指定次要排序键，按降序对序列元素进行后续排序
 // 必须在 OrderBy 或 OrderByDescending 之后调用
 func ThenByDescending[T comparable, K cmp.Ordered](q Query[T], key func(t T) K) Query[T] {
+	if !q.HasOrder() {
+		return q
+	}
 	nextCmp := func(a, b T) int {
 		return cmp.Compare(key(b), key(a))
 	}
@@ -68,7 +74,7 @@ func ThenByDescending[T comparable, K cmp.Ordered](q Query[T], key func(t T) K) 
 }
 
 // 链式组合比较器
-func chainComparisons[T comparable](a, b compareFunc[T]) compareFunc[T] {
+func chainComparisons[T comparable](a, b CompareFunc[T]) CompareFunc[T] {
 	return func(x, y T) int {
 		if r := a(x, y); r != 0 {
 			return r
@@ -78,19 +84,27 @@ func chainComparisons[T comparable](a, b compareFunc[T]) compareFunc[T] {
 }
 
 // 核心排序执行函数
-func orderBy[T comparable](q Query[T], cmpFn compareFunc[T]) Query[T] {
+func orderBy[T comparable](q Query[T], cmpFn CompareFunc[T]) Query[T] {
+	var source Query[T]
+	if q.sortSource != nil {
+		source = *q.sortSource
+	} else {
+		source = q
+	}
 	return Query[T]{
 		compare: cmpFn,
 		iterate: func() func() (T, bool) {
-			data := q.ToSlice()
+			data := source.ToSlice()
 			slices.SortFunc(data, cmpFn)
 			return From(data).iterate()
 		},
-		capacity: q.capacity,
+		capacity:   source.capacity,
+		sortSource: &source,
 	}
 }
 
-type compareFunc[T comparable] func(a, b T) int
+// 比较函数类型
+type CompareFunc[T comparable] func(a, b T) int
 
 // KV 键值对结构体，用于存储分组等操作的结果
 type KV[K, V comparable] struct {
@@ -100,11 +114,190 @@ type KV[K, V comparable] struct {
 
 // Query 查询结构体，是 LINQ 操作的核心类型
 type Query[T comparable] struct {
-	compare   compareFunc[T]
-	iterate   func() func() (T, bool)
-	fastSlice []T
-	fastWhere func(T) bool
-	capacity  int
+	compare    CompareFunc[T]
+	iterate    func() func() (T, bool)
+	fastSlice  []T
+	fastWhere  func(T) bool
+	capacity   int
+	sortSource *Query[T]
+}
+
+// OrderedQuery 包含已有的排序规则
+type OrderedQuery[T comparable] struct {
+	Query[T]
+	compare CompareFunc[T]
+}
+
+// ThenBy 添加后续排序规则
+func (oq OrderedQuery[T]) Then(comparator CompareFunc[T]) OrderedQuery[T] {
+	prevCompare := oq.compare
+	return OrderedQuery[T]{
+		Query: oq.Query,
+		compare: func(a, b T) int {
+			if res := prevCompare(a, b); res != 0 {
+				return res
+			}
+			return comparator(a, b)
+		},
+	}
+}
+
+// ToSlice 执行排序并返回切片
+func (oq OrderedQuery[T]) ToSlice() []T {
+	data := oq.Query.ToSlice()
+	slices.SortFunc(data, oq.compare)
+	return data
+}
+
+// ToQuery 将 OrderedQuery 转换为已排序的 Query
+func (oq OrderedQuery[T]) ToQuery() Query[T] {
+	return From(oq.ToSlice())
+}
+
+// Take 获取前 N 个元素 (基于排序后)
+func (oq OrderedQuery[T]) Take(count int) Query[T] {
+	return oq.ToQuery().Take(count)
+}
+
+// Skip 跳过前 N 个元素 (基于排序后)
+func (oq OrderedQuery[T]) Skip(count int) Query[T] {
+	return oq.ToQuery().Skip(count)
+}
+
+// Page 分页查询 (基于排序后)
+func (oq OrderedQuery[T]) Page(page, pageSize int) Query[T] {
+	return oq.ToQuery().Page(page, pageSize)
+}
+
+// Where 过滤元素 (基于排序后)
+func (oq OrderedQuery[T]) Where(predicate func(T) bool) Query[T] {
+	return oq.ToQuery().Where(predicate)
+}
+
+// Distinct 去重 (基于排序后)
+func (oq OrderedQuery[T]) Distinct() Query[T] {
+	return oq.ToQuery().Distinct()
+}
+
+// Reverse 反转序列 (基于排序后)
+func (oq OrderedQuery[T]) Reverse() OrderedQuery[T] {
+	origCompare := oq.compare
+	return OrderedQuery[T]{
+		Query: oq.Query,
+		compare: func(a, b T) int {
+			return origCompare(b, a)
+		},
+	}
+}
+
+// Last 返回排序后的最后一个元素
+func (oq OrderedQuery[T]) Last() T {
+	var max T
+	found := false
+	cmp := oq.compare
+	oq.Query.ForEach(func(item T) bool {
+		if !found {
+			max = item
+			found = true
+			return true
+		}
+		if cmp(item, max) > 0 {
+			max = item
+		}
+		return true
+	})
+	if found {
+		return max
+	}
+	var zero T
+	return zero
+}
+
+// First 返回排序后的第一个元素
+func (oq OrderedQuery[T]) First() T {
+	var min T
+	found := false
+	cmp := oq.compare
+	oq.Query.ForEach(func(item T) bool {
+		if !found {
+			min = item
+			found = true
+			return true
+		}
+		if cmp(item, min) < 0 {
+			min = item
+		}
+		return true
+	})
+	if found {
+		return min
+	}
+	var zero T
+	return zero
+}
+
+// FirstDefault 返回排序后的第一个元素 (带默认值)
+func (oq OrderedQuery[T]) FirstDefault(defaultValue ...T) T {
+	if oq.Query.Any() {
+		return oq.First()
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
+	var zero T
+	return zero
+}
+
+// LastDefault 返回排序后的最后一个元素 (带默认值)
+func (oq OrderedQuery[T]) LastDefault(defaultValue ...T) T {
+	if oq.Query.Any() {
+		return oq.Last()
+	}
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
+	var zero T
+	return zero
+}
+
+// TakeWhile 获取满足条件的元素 (基于排序后)
+func (oq OrderedQuery[T]) TakeWhile(predicate func(T) bool) Query[T] {
+	return oq.ToQuery().TakeWhile(predicate)
+}
+
+// SkipWhile 跳过满足条件的元素 (基于排序后)
+func (oq OrderedQuery[T]) SkipWhile(predicate func(T) bool) Query[T] {
+	return oq.ToQuery().SkipWhile(predicate)
+}
+
+// IndexOf 返回索引 (基于排序后)
+func (oq OrderedQuery[T]) IndexOf(predicate func(T) bool) int {
+	return oq.ToQuery().IndexOf(predicate)
+}
+
+// ForEach 遍历 (基于排序后)
+func (oq OrderedQuery[T]) ForEach(action func(T) bool) {
+	oq.ToQuery().ForEach(action)
+}
+
+// ForEachIndexed 带索引遍历 (基于排序后)
+func (oq OrderedQuery[T]) ForEachIndexed(action func(int, T) bool) {
+	oq.ToQuery().ForEachIndexed(action)
+}
+
+// DefaultIfEmpty 若为空则返回默认值 (基于排序后)
+func (oq OrderedQuery[T]) DefaultIfEmpty(defaultValue T) Query[T] {
+	return oq.ToQuery().DefaultIfEmpty(defaultValue)
+}
+
+// Append 追加 (转换为普通 Query，排序语义由用户决定，通常追加在有序序列之后)
+func (oq OrderedQuery[T]) Append(item T) Query[T] {
+	return oq.ToQuery().Append(item)
+}
+
+// Prepend 前置 (转换为普通 Query)
+func (oq OrderedQuery[T]) Prepend(item T) Query[T] {
+	return oq.ToQuery().Prepend(item)
 }
 
 // From 从切片创建 Query 查询对象
@@ -170,12 +363,8 @@ func FromMap[K, V comparable](source map[K]V) Query[KV[K, V]] {
 	if length == 0 {
 		return From([]KV[K, V]{})
 	}
-
 	return Query[KV[K, V]]{
 		iterate: func() func() (KV[K, V], bool) {
-			// 如果调用了多次 iterate()，我们还是在调用时决定是否快照
-			// 或者直接使用 map 迭代器。为了保证并发迭代下的稳定性，第一次调用时转为 slice 是可接受的
-			// 但我们将这个步骤延迟到这个闭包被执行时
 			keyvalues := make([](KV[K, V]), 0, length)
 			for key, value := range source {
 				keyvalues = append(keyvalues, KV[K, V]{Key: key, Value: value})
@@ -192,6 +381,28 @@ func FromMap[K, V comparable](source map[K]V) Query[KV[K, V]] {
 			}
 		},
 		capacity: length,
+	}
+}
+
+// Asc 根据键选择器生成升序比较器
+func Asc[T comparable, K cmp.Ordered](selector func(T) K) CompareFunc[T] {
+	return func(a, b T) int {
+		return cmp.Compare(selector(a), selector(b))
+	}
+}
+
+// Desc 根据键选择器生成降序比较器
+func Desc[T comparable, K cmp.Ordered](selector func(T) K) CompareFunc[T] {
+	return func(a, b T) int {
+		return cmp.Compare(selector(b), selector(a))
+	}
+}
+
+// Order 指定排序规则
+func (q Query[T]) Order(comparator CompareFunc[T]) OrderedQuery[T] {
+	return OrderedQuery[T]{
+		Query:   q,
+		compare: comparator,
 	}
 }
 
@@ -1122,7 +1333,6 @@ func (q Query[T]) ForEachParallel(workers int, action func(T)) {
 		})
 		return
 	}
-
 	if q.fastSlice != nil {
 		source := q.fastSlice
 		predicate := q.fastWhere
@@ -1130,7 +1340,6 @@ func (q Query[T]) ForEachParallel(workers int, action func(T)) {
 		if length == 0 {
 			return
 		}
-
 		var wg sync.WaitGroup
 		wg.Add(workers)
 		for i := 0; i < workers; i++ {
@@ -1154,7 +1363,6 @@ func (q Query[T]) ForEachParallel(workers int, action func(T)) {
 		wg.Wait()
 		return
 	}
-
 	ch := make(chan T, workers)
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -1193,7 +1401,6 @@ func (q Query[T]) ForEachParallelCtx(ctx context.Context, workers int, action fu
 		})
 		return
 	}
-
 	if q.fastSlice != nil {
 		source := q.fastSlice
 		predicate := q.fastWhere
@@ -1201,7 +1408,6 @@ func (q Query[T]) ForEachParallelCtx(ctx context.Context, workers int, action fu
 		if length == 0 {
 			return
 		}
-
 		var wg sync.WaitGroup
 		wg.Add(workers)
 		for i := 0; i < workers; i++ {
@@ -1229,7 +1435,6 @@ func (q Query[T]) ForEachParallelCtx(ctx context.Context, workers int, action fu
 		wg.Wait()
 		return
 	}
-
 	ch := make(chan T, workers)
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -1469,6 +1674,11 @@ func (q Query[T]) Count() (r int) {
 
 // ToSlice 将序列转换为切片
 func (q Query[T]) ToSlice() (r []T) {
+	if q.compare != nil && q.sortSource != nil {
+		r = q.sortSource.ToSlice()
+		slices.SortFunc(r, q.compare)
+		return
+	}
 	if q.fastSlice != nil {
 		source := q.fastSlice
 		predicate := q.fastWhere
@@ -1768,17 +1978,14 @@ func SelectAsync[T, V comparable](q Query[T], workers int, selector func(T) V) Q
 			outCh := make(chan V, workers*2)
 			doneCh := make(chan struct{})
 			var closeOnce sync.Once
-
 			go func() {
 				defer close(outCh)
-
 				if q.fastSlice != nil {
 					source := q.fastSlice
 					predicate := q.fastWhere
 					length := len(source)
 					var wg sync.WaitGroup
 					wg.Add(workers)
-
 					for i := 0; i < workers; i++ {
 						go func(wIdx int) {
 							defer wg.Done()
@@ -1804,11 +2011,9 @@ func SelectAsync[T, V comparable](q Query[T], workers int, selector func(T) V) Q
 					wg.Wait()
 					return
 				}
-
 				next := q.iterate()
 				sem := make(chan struct{}, workers)
 				var wg sync.WaitGroup
-
 				for item, ok := next(); ok; item, ok = next() {
 					select {
 					case <-doneCh:
@@ -1835,7 +2040,6 @@ func SelectAsync[T, V comparable](q Query[T], workers int, selector func(T) V) Q
 				}
 				wg.Wait()
 			}()
-
 			return func() (item V, ok bool) {
 				item, ok = <-outCh
 				if !ok {
@@ -1858,17 +2062,14 @@ func SelectAsyncCtx[T, V comparable](ctx context.Context, q Query[T], workers in
 			outCh := make(chan V, workers*2)
 			doneCh := make(chan struct{})
 			var closeOnce sync.Once
-
 			go func() {
 				defer close(outCh)
-
 				if q.fastSlice != nil {
 					source := q.fastSlice
 					predicate := q.fastWhere
 					length := len(source)
 					var wg sync.WaitGroup
 					wg.Add(workers)
-
 					for i := 0; i < workers; i++ {
 						go func(wIdx int) {
 							defer wg.Done()
@@ -1903,11 +2104,9 @@ func SelectAsyncCtx[T, V comparable](ctx context.Context, q Query[T], workers in
 					wg.Wait()
 					return
 				}
-
 				next := q.iterate()
 				sem := make(chan struct{}, workers)
 				var wg sync.WaitGroup
-
 				for item, ok := next(); ok; item, ok = next() {
 					select {
 					case <-ctx.Done():
@@ -2017,7 +2216,6 @@ func WhereSelect[T, V comparable](q Query[T], selector func(T) (V, bool)) Query[
 }
 
 // DistinctSelect 根据选择器返回的值对序列进行去重的查询对象
-// DistinctSelect[T, V] 对于 T 类型的序列，使用 selector(T) -> V 进行去重，返回 V 类型的序列
 func DistinctSelect[T, V comparable](q Query[T], selector func(T) V) Query[V] {
 	if q.fastSlice != nil {
 		source := q.fastSlice
@@ -2341,7 +2539,6 @@ func ToMap[T, K comparable](q Query[T], selector func(T) K) map[K]T {
 		}
 		return ret
 	}
-
 	var ret map[K]T
 	if q.capacity > 0 {
 		ret = make(map[K]T, q.capacity)
