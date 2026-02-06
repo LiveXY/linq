@@ -365,7 +365,7 @@ func FromMap[K, V comparable](source map[K]V) Query[KV[K, V]] {
 	}
 	return Query[KV[K, V]]{
 		iterate: func() func() (KV[K, V], bool) {
-			keyvalues := make([](KV[K, V]), 0, length)
+			keyvalues := make([]KV[K, V], 0, length)
 			for key, value := range source {
 				keyvalues = append(keyvalues, KV[K, V]{Key: key, Value: value})
 			}
@@ -1238,14 +1238,34 @@ func (q Query[T]) First() T {
 
 // FirstIfEmpty 返回序列的第一个元素 如果为空返回默认值
 func (q Query[T]) FirstDefault(d ...T) T {
-	var v = q.First()
-	if len(d) == 0 {
-		return Empty[T]()
+	if q.fastSlice != nil {
+		if q.fastWhere == nil {
+			if len(q.fastSlice) > 0 {
+				return q.fastSlice[0]
+			}
+		} else {
+			for _, item := range q.fastSlice {
+				if q.fastWhere(item) {
+					return item
+				}
+			}
+		}
+		if len(d) > 0 {
+			return d[0]
+		}
+		var zero T
+		return zero
 	}
-	if IsEmpty(v) {
+	next := q.iterate()
+	item, ok := next()
+	if ok {
+		return item
+	}
+	if len(d) > 0 {
 		return d[0]
 	}
-	return v
+	var zero T
+	return zero
 }
 
 // FirstWith 返回第一个满足条件的元素
@@ -1500,14 +1520,40 @@ func (q Query[T]) Last() (r T) {
 
 // LastIfEmpty 返返回序列的最后一个元素 如果为空返回默认值
 func (q Query[T]) LastDefault(d ...T) T {
-	var v = q.Last()
-	if len(d) == 0 {
-		return Empty[T]()
+	if q.fastSlice != nil {
+		if q.fastWhere == nil {
+			if len(q.fastSlice) > 0 {
+				return q.fastSlice[len(q.fastSlice)-1]
+			}
+		} else {
+			for i := len(q.fastSlice) - 1; i >= 0; i-- {
+				item := q.fastSlice[i]
+				if q.fastWhere(item) {
+					return item
+				}
+			}
+		}
+		if len(d) > 0 {
+			return d[0]
+		}
+		var zero T
+		return zero
 	}
-	if IsEmpty(v) {
+	next := q.iterate()
+	var last T
+	found := false
+	for item, ok := next(); ok; item, ok = next() {
+		last = item
+		found = true
+	}
+	if found {
+		return last
+	}
+	if len(d) > 0 {
 		return d[0]
 	}
-	return v
+	var zero T
+	return zero
 }
 
 // LastWith 返回最后一个满足条件的元素
@@ -2631,7 +2677,7 @@ func LastIndexOf[T comparable](list []T, element T) int {
 func reverse[T comparable](list []T) {
 	length := len(list)
 	half := length / 2
-	for i := range half {
+	for i := 0; i < half; i++ {
 		j := length - 1 - i
 		list[i], list[j] = list[j], list[i]
 	}

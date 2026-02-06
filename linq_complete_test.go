@@ -1005,6 +1005,33 @@ func TestFirstLastDefault(t *testing.T) {
 	if nums.FirstDefault(99) != 1 {
 		t.Error("FirstDefault 应该返回第一个元素")
 	}
+	if nums.LastDefault(99) != 3 {
+		t.Error("LastDefault 应该返回最后一个元素")
+	}
+
+	// 非空但未提供默认值
+	if nums.FirstDefault() != 1 {
+		t.Error("FirstDefault(无默认值) 应该返回第一个元素")
+	}
+	if nums.LastDefault() != 3 {
+		t.Error("LastDefault(无默认值) 应该返回最后一个元素")
+	}
+
+	// 首/末元素为零值时，不应误判为空
+	zerosFirst := From([]int{0, 2, 3})
+	if zerosFirst.FirstDefault(99) != 0 {
+		t.Error("FirstDefault 应该返回 0 而不是默认值")
+	}
+	zerosLast := From([]int{1, 2, 0})
+	if zerosLast.LastDefault(99) != 0 {
+		t.Error("LastDefault 应该返回 0 而不是默认值")
+	}
+
+	// 过滤后首元素为零值
+	filtered := From([]int{1, 0, 2}).Where(func(i int) bool { return i%2 == 0 })
+	if filtered.FirstDefault(99) != 0 {
+		t.Error("过滤后 FirstDefault 应该返回 0 而不是默认值")
+	}
 }
 
 // TestStaticFunctions 测试独立工具函数
