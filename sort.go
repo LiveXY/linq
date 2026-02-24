@@ -128,3 +128,58 @@ func (oq OrderedQuery[T]) ToQuery() Query[T] {
 	slices.SortFunc(data, oq.compare)
 	return From(data)
 }
+
+// ToSlice 提供已排序结果
+func (oq OrderedQuery[T]) ToSlice() []T {
+	return oq.ToQuery().ToSlice()
+}
+
+// First 返回已排序第一个元素
+func (oq OrderedQuery[T]) First() T {
+	return oq.ToQuery().First()
+}
+
+// Last 返回已排序最后一个元素
+func (oq OrderedQuery[T]) Last() T {
+	return oq.ToQuery().Last()
+}
+
+// Take 代理
+func (oq OrderedQuery[T]) Take(count int) Query[T] {
+	return oq.ToQuery().Take(count)
+}
+
+// Skip 代理
+func (oq OrderedQuery[T]) Skip(count int) Query[T] {
+	return oq.ToQuery().Skip(count)
+}
+
+// Where 代理
+func (oq OrderedQuery[T]) Where(predicate func(T) bool) Query[T] {
+	return oq.ToQuery().Where(predicate)
+}
+
+// TakeWhile 代理
+func (oq OrderedQuery[T]) TakeWhile(predicate func(T) bool) Query[T] {
+	return oq.ToQuery().TakeWhile(predicate)
+}
+
+// SkipWhile 代理
+func (oq OrderedQuery[T]) SkipWhile(predicate func(T) bool) Query[T] {
+	return oq.ToQuery().SkipWhile(predicate)
+}
+
+// IndexOfWith 代理
+func (oq OrderedQuery[T]) IndexOfWith(predicate func(T) bool) int {
+	return oq.ToQuery().IndexOfWith(predicate)
+}
+
+// ForEach 代理
+func (oq OrderedQuery[T]) ForEach(action func(T) bool) {
+	oq.ToQuery().ForEach(action)
+}
+
+// Reverse 代理
+func (oq OrderedQuery[T]) Reverse() Query[T] {
+	return oq.ToQuery().Reverse()
+}

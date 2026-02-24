@@ -212,7 +212,7 @@ func (q Query[T]) LastDefault(defaultValue ...T) T {
 	return zero
 }
 
-// Single 返回包含且仅包含一个元素的序列的那个元素，如果不等于1个抛出 panic
+// Single 返回包含且仅包含一个元素的序列的那个元素，如果不等于1个返回零值
 func (q Query[T]) Single() T {
 	var val T
 	count := 0
@@ -220,16 +220,18 @@ func (q Query[T]) Single() T {
 		val = item
 		count++
 		if count > 1 {
-			panic("sequence contains more than one element")
+			var zero T
+			return zero
 		}
 	}
 	if count == 0 {
-		panic("sequence contains no elements")
+		var zero T
+		return zero
 	}
 	return val
 }
 
-// SingleWith 返回满足条件的那个元素，如果不等于1个抛出 panic
+// SingleWith 返回满足条件的那个元素，如果不等于1个返回零值
 func (q Query[T]) SingleWith(predicate func(T) bool) T {
 	return q.Where(predicate).Single()
 }

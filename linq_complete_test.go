@@ -164,7 +164,7 @@ func TestDefaultIfEmpty(t *testing.T) {
 // TestDistinctMethod 测试 Query.Distinct 方法
 func TestDistinctMethod(t *testing.T) {
 	nums := []int{1, 2, 2, 3, 3, 3, 4, 4, 4, 4}
-	result := From(nums).Distinct().ToSlice()
+	result := Distinct(From(nums)).ToSlice()
 
 	expected := []int{1, 2, 3, 4}
 	if len(result) != len(expected) {
@@ -176,7 +176,7 @@ func TestDistinctMethod(t *testing.T) {
 func TestExcept(t *testing.T) {
 	nums1 := []int{1, 2, 3, 4, 5}
 	nums2 := []int{3, 4, 5, 6, 7}
-	result := From(nums1).Except(From(nums2)).ToSlice()
+	result := Except(From(nums1), From(nums2)).ToSlice()
 
 	expected := []int{1, 2}
 	if len(result) != len(expected) {
@@ -188,7 +188,7 @@ func TestExcept(t *testing.T) {
 func TestIntersectMethod(t *testing.T) {
 	nums1 := []int{1, 2, 3, 4, 5}
 	nums2 := []int{3, 4, 5, 6, 7}
-	result := From(nums1).Intersect(From(nums2)).ToSlice()
+	result := Intersect(From(nums1), From(nums2)).ToSlice()
 
 	expected := []int{3, 4, 5}
 	if len(result) != len(expected) {
@@ -203,14 +203,14 @@ func TestIntersectMethod(t *testing.T) {
 // TestIndexOfMethod 测试 Query.IndexOf 方法
 func TestIndexOfMethod(t *testing.T) {
 	nums := []int{10, 20, 30, 40, 50}
-	idx := From(nums).IndexOf(func(i int) bool { return i == 30 })
+	idx := From(nums).IndexOfWith(func(i int) bool { return i == 30 })
 
 	if idx != 2 {
 		t.Errorf("期望索引 2，实际得到 %d", idx)
 	}
 
 	// 不存在的元素
-	idx2 := From(nums).IndexOf(func(i int) bool { return i == 99 })
+	idx2 := From(nums).IndexOfWith(func(i int) bool { return i == 99 })
 	if idx2 != -1 {
 		t.Errorf("期望 -1，实际得到 %d", idx2)
 	}
@@ -369,17 +369,17 @@ func TestSumAllTypes(t *testing.T) {
 	type Item struct{ Value int }
 	items := []Item{{1}, {2}, {3}, {4}, {5}}
 
-	sumInt := From(items).SumIntBy(func(i Item) int { return i.Value })
+	sumInt := SumBy(From(items), func(i Item) int { return i.Value })
 	if sumInt != 15 {
 		t.Errorf("SumIntBy: 期望 15，实际得到 %d", sumInt)
 	}
 
-	sumInt64 := From(items).SumInt64By(func(i Item) int64 { return int64(i.Value) })
+	sumInt64 := SumBy(From(items), func(i Item) int64 { return int64(i.Value) })
 	if sumInt64 != 15 {
 		t.Errorf("SumInt64By: 期望 15，实际得到 %d", sumInt64)
 	}
 
-	sumFloat := From(items).SumFloat64By(func(i Item) float64 { return float64(i.Value) })
+	sumFloat := SumBy(From(items), func(i Item) float64 { return float64(i.Value) })
 	if sumFloat != 15.0 {
 		t.Errorf("SumFloat64By: 期望 15.0，实际得到 %f", sumFloat)
 	}
@@ -389,17 +389,17 @@ func TestSumAllTypes(t *testing.T) {
 func TestAvgAllTypes(t *testing.T) {
 	nums := []int{10, 20, 30, 40, 50}
 
-	avgInt := From(nums).AvgIntBy(func(i int) int { return i })
+	avgInt := AverageBy(From(nums), func(i int) int { return i })
 	if avgInt != 30.0 {
 		t.Errorf("AvgIntBy: 期望 30.0，实际得到 %f", avgInt)
 	}
 
-	avgInt64 := From(nums).AvgInt64By(func(i int) int64 { return int64(i) })
+	avgInt64 := AverageBy(From(nums), func(i int) int64 { return int64(i) })
 	if avgInt64 != 30.0 {
 		t.Errorf("AvgInt64By: 期望 30.0，实际得到 %f", avgInt64)
 	}
 
-	avgFloat := From(nums).AvgBy(func(i int) float64 { return float64(i) })
+	avgFloat := AverageBy(From(nums), func(i int) float64 { return float64(i) })
 	if avgFloat != 30.0 {
 		t.Errorf("AvgBy: 期望 30.0，实际得到 %f", avgFloat)
 	}
@@ -422,9 +422,8 @@ func TestCount(t *testing.T) {
 // TestToChannel 测试输出到 Channel
 func TestToChannel(t *testing.T) {
 	nums := []int{1, 2, 3, 4, 5}
-	ch := make(chan int, 5)
 
-	go From(nums).ToChannel(ch)
+	ch := From(nums).ToChannel(context.Background())
 
 	var result []int
 	for v := range ch {
@@ -681,7 +680,7 @@ func TestEverySomeNone(t *testing.T) {
 func TestIntersectFunction(t *testing.T) {
 	list1 := []int{1, 2, 3, 4, 5}
 	list2 := []int{3, 4, 5, 6, 7}
-	result := Intersect(list1, list2)
+	result := SliceIntersect(list1, list2)
 
 	expected := []int{3, 4, 5}
 	if len(result) != len(expected) {
@@ -707,7 +706,7 @@ func TestDifference(t *testing.T) {
 func TestUnionFunction(t *testing.T) {
 	list1 := []int{1, 2, 3}
 	list2 := []int{3, 4, 5}
-	result := Union(list1, list2)
+	result := SliceUnion(list1, list2)
 
 	expected := []int{1, 2, 3, 4, 5}
 	if len(result) != len(expected) {
@@ -773,10 +772,10 @@ func TestDefault(t *testing.T) {
 
 // TestEmpty 测试获取零值
 func TestEmpty(t *testing.T) {
-	if Empty[int]() != 0 {
+	if SliceEmpty[int]() != 0 {
 		t.Error("Empty[int] 应该是 0")
 	}
-	if Empty[string]() != "" {
+	if SliceEmpty[string]() != "" {
 		t.Error("Empty[string] 应该是 ''")
 	}
 }
@@ -802,21 +801,21 @@ func TestIsEmptyIsNotEmpty(t *testing.T) {
 }
 
 // TestTry 测试 Try 函数
-func TestTry(t *testing.T) {
+func TestSliceTry(t *testing.T) {
 	// 成功的情况
-	success := Try(func() error { return nil })
+	success := SliceTry(func() error { return nil })
 	if !success {
 		t.Error("Try 成功时应该返回 true")
 	}
 
 	// 失败的情况
-	failure := Try(func() error { return fmt.Errorf("error") })
+	failure := SliceTry(func() error { return fmt.Errorf("error") })
 	if failure {
 		t.Error("Try 错误时应该返回 false")
 	}
 
 	// Panic 的情况
-	panicCase := Try(func() error { panic("panic") })
+	panicCase := SliceTry(func() error { panic("panic") })
 	if panicCase {
 		t.Error("Try panic 时应该返回 false")
 	}
@@ -923,8 +922,8 @@ func TestGrouping(t *testing.T) {
 
 	for _, g := range groupsSelect {
 		if g.Key == "New York" {
-			if len(*g.Value) != 2 {
-				t.Errorf("New York 分组应该有 2 人，实际得到 %d", len(*g.Value))
+			if len(g.Value) != 2 {
+				t.Errorf("New York 分组应该有 2 人，实际得到 %d", len(g.Value))
 			}
 		}
 	}
@@ -1077,9 +1076,9 @@ func TestStaticFunctions(t *testing.T) {
 		t.Error("EqualBy 失败")
 	}
 
-	// ContainsBy
-	if !ContainsBy(nums, func(i int) bool { return i == 2 }) {
-		t.Error("ContainsBy 失败")
+	// SliceContainsBy
+	if !SliceContainsBy(nums, func(i int) bool { return i == 2 }) {
+		t.Error("SliceContainsBy 失败")
 	}
 
 	// BigData Path (通过模拟大数据触发)
@@ -1232,7 +1231,7 @@ func TestForEachIndexedEarlyExit(t *testing.T) {
 func TestUnionWithDuplicates(t *testing.T) {
 	nums1 := []int{1, 2, 2, 3}
 	nums2 := []int{3, 4, 4, 5}
-	result := From(nums1).Union(From(nums2)).ToSlice()
+	result := Union(From(nums1), From(nums2)).ToSlice()
 
 	expected := []int{1, 2, 3, 4, 5}
 	if len(result) != len(expected) {
@@ -1243,7 +1242,7 @@ func TestUnionWithDuplicates(t *testing.T) {
 // TestTryWithRetry 测试 Try 重试
 func TestTryWithRetry(t *testing.T) {
 	attempts := 0
-	success := Try(func() error {
+	success := SliceTry(func() error {
 		attempts++
 		if attempts < 3 {
 			return fmt.Errorf("error")
@@ -1265,16 +1264,16 @@ func TestSumAllRemainingTypes(t *testing.T) {
 	items := []Num{{1}, {2}, {3}}
 	q := From(items)
 
-	if q.SumInt8By(func(n Num) int8 { return int8(n.Val) }) != 6 {
+	if SumBy(q, func(n Num) int8 { return int8(n.Val) }) != 6 {
 		t.Error("SumInt8By 失败")
 	}
-	if q.SumInt16By(func(n Num) int16 { return int16(n.Val) }) != 6 {
+	if SumBy(q, func(n Num) int16 { return int16(n.Val) }) != 6 {
 		t.Error("SumInt16By 失败")
 	}
-	if q.SumInt32By(func(n Num) int32 { return int32(n.Val) }) != 6 {
+	if SumBy(q, func(n Num) int32 { return int32(n.Val) }) != 6 {
 		t.Error("SumInt32By 失败")
 	}
-	if q.SumFloat32By(func(n Num) float32 { return float32(n.Val) }) != 6.0 {
+	if SumBy(q, func(n Num) float32 { return float32(n.Val) }) != 6.0 {
 		t.Error("SumFloat32By 失败")
 	}
 
@@ -1282,19 +1281,19 @@ func TestSumAllRemainingTypes(t *testing.T) {
 	uitems := []UNum{{1}, {2}, {3}}
 	uq := From(uitems)
 
-	if uq.SumUIntBy(func(n UNum) uint { return n.Val }) != 6 {
+	if SumBy(uq, func(n UNum) uint { return n.Val }) != 6 {
 		t.Error("SumUIntBy 失败")
 	}
-	if uq.SumUInt8By(func(n UNum) uint8 { return uint8(n.Val) }) != 6 {
+	if SumBy(uq, func(n UNum) uint8 { return uint8(n.Val) }) != 6 {
 		t.Error("SumUInt8By 失败")
 	}
-	if uq.SumUInt16By(func(n UNum) uint16 { return uint16(n.Val) }) != 6 {
+	if SumBy(uq, func(n UNum) uint16 { return uint16(n.Val) }) != 6 {
 		t.Error("SumUInt16By 失败")
 	}
-	if uq.SumUInt32By(func(n UNum) uint32 { return uint32(n.Val) }) != 6 {
+	if SumBy(uq, func(n UNum) uint32 { return uint32(n.Val) }) != 6 {
 		t.Error("SumUInt32By 失败")
 	}
-	if uq.SumUInt64By(func(n UNum) uint64 { return uint64(n.Val) }) != 6 {
+	if SumBy(uq, func(n UNum) uint64 { return uint64(n.Val) }) != 6 {
 		t.Error("SumUInt64By 失败")
 	}
 }
@@ -1359,10 +1358,10 @@ func TestEdgeCases(t *testing.T) {
 
 	// IndexOf fastPath with preFilter match/no-match
 	q := From([]int{1, 2, 3, 4}).Where(func(i int) bool { return i > 2 }) // 结果集为 {3, 4}
-	if q.IndexOf(func(i int) bool { return i == 4 }) != 1 {
-		t.Errorf("Filtered IndexOf 失败, 得到 %d", q.IndexOf(func(i int) bool { return i == 4 }))
+	if q.IndexOfWith(func(i int) bool { return i == 4 }) != 1 {
+		t.Errorf("Filtered IndexOf 失败, 得到 %d", q.IndexOfWith(func(i int) bool { return i == 4 }))
 	}
-	if q.IndexOf(func(i int) bool { return i == 1 }) != -1 {
+	if q.IndexOfWith(func(i int) bool { return i == 1 }) != -1 {
 		t.Error("Filtered IndexOf(hidden) 失败")
 	}
 
@@ -1466,7 +1465,7 @@ func TestLazyPaths(t *testing.T) {
 	q := Range(1, 5) // 1, 2, 3, 4, 5
 
 	// IndexOf
-	if q.IndexOf(func(i int) bool { return i == 3 }) != 2 {
+	if q.IndexOfWith(func(i int) bool { return i == 3 }) != 2 {
 		t.Error("Lazy IndexOf 失败")
 	}
 
@@ -1622,7 +1621,7 @@ func TestOrderedQuery_Operations(t *testing.T) {
 	// Distinct (假设源有重复: [5, 1, 1, 2] -> Order -> [1, 1, 2, 5] -> Distinct -> [1, 2, 5])
 	numsDup := []int{5, 1, 1, 2}
 	qDup := From(numsDup).Order(Asc(func(i int) int { return i }))
-	distinctRes := qDup.Distinct().ToSlice()
+	distinctRes := Distinct(qDup.ToQuery()).ToSlice()
 	if len(distinctRes) != 3 || distinctRes[0] != 1 || distinctRes[1] != 2 || distinctRes[2] != 5 {
 		t.Errorf("Ordered Distinct 失败: %v", distinctRes)
 	}
@@ -1651,7 +1650,7 @@ func TestOrderedQuery_Traversal(t *testing.T) {
 	}
 
 	// IndexOf (找 2，位置索引应为 1)
-	if idx := q.IndexOf(func(i int) bool { return i == 2 }); idx != 1 {
+	if idx := q.IndexOfWith(func(i int) bool { return i == 2 }); idx != 1 {
 		t.Errorf("Ordered IndexOf 期望 1, 实际 %d", idx)
 	}
 

@@ -64,15 +64,11 @@ func (q Query[T]) ForEachParallelCtx(ctx context.Context, workers int, action fu
 
 	errCh := make(chan any, workers)
 
-	go func() {
-		wg.Wait()
-		close(errCh)
-	}()
-
+loop:
 	for item := range q.iterate {
 		select {
 		case <-workerCtx.Done():
-			break
+			break loop
 		case sem <- token{}:
 		case panicErr := <-errCh:
 			if panicErr != nil {
@@ -104,6 +100,7 @@ func (q Query[T]) ForEachParallelCtx(ctx context.Context, workers int, action fu
 	}
 
 	wg.Wait()
+	close(errCh)
 
 	// 统一抛出捕获到的 panic
 	for panicErr := range errCh {

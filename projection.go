@@ -77,6 +77,7 @@ func SelectAsyncCtx[T, V any](ctx context.Context, q Query[T], workers int, sele
 					}
 					if !yield(val) {
 						cancel()
+						return
 					}
 				}
 			}
@@ -147,4 +148,118 @@ func Try[T any](f func() T) (result T, err any) {
 	}()
 	result = f()
 	return
+}
+
+// SelectAsync 并发转换元素而无需手动传递 context
+func SelectAsync[T, V comparable](q Query[T], workers int, selector func(T) V) Query[V] {
+	return SelectAsyncCtx(context.Background(), q, workers, selector)
+}
+
+// WhereSelect 选择满足条件并执行变换的元素
+func WhereSelect[T, V comparable](q Query[T], selector func(T) (V, bool)) Query[V] {
+	return Query[V]{
+		iterate: func(yield func(V) bool) {
+			for item := range q.iterate {
+				val, ok := selector(item)
+				if ok {
+					if !yield(val) {
+						return
+					}
+				}
+			}
+		},
+	}
+}
+
+// DistinctSelect 映射并去重
+func DistinctSelect[T any, V comparable](q Query[T], selector func(T) V) Query[V] {
+	return Query[V]{
+		iterate: func(yield func(V) bool) {
+			seen := make(map[V]struct{})
+			for item := range q.iterate {
+				val := selector(item)
+				if _, ok := seen[val]; !ok {
+					seen[val] = struct{}{}
+					if !yield(val) {
+						return
+					}
+				}
+			}
+		},
+	}
+}
+
+// UnionSelect 映射并合并去重
+func UnionSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+	return Query[V]{
+		iterate: func(yield func(V) bool) {
+			seen := make(map[V]struct{})
+			for item := range q.iterate {
+				val := selector(item)
+				if _, ok := seen[val]; !ok {
+					seen[val] = struct{}{}
+					if !yield(val) {
+						return
+					}
+				}
+			}
+			for item := range q2.iterate {
+				val := selector(item)
+				if _, ok := seen[val]; !ok {
+					seen[val] = struct{}{}
+					if !yield(val) {
+						return
+					}
+				}
+			}
+		},
+	}
+}
+
+// IntersectSelect 映射并取交集去重
+func IntersectSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+	return Query[V]{
+		iterate: func(yield func(V) bool) {
+			seen := make(map[V]struct{})
+			for item := range q2.iterate {
+				seen[selector(item)] = struct{}{}
+			}
+			emitted := make(map[V]struct{})
+			for item := range q.iterate {
+				val := selector(item)
+				if _, ok := seen[val]; ok {
+					if _, already := emitted[val]; !already {
+						emitted[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
+					}
+				}
+			}
+		},
+	}
+}
+
+// ExceptSelect 映射并取差集去重
+func ExceptSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+	return Query[V]{
+		iterate: func(yield func(V) bool) {
+			seen := make(map[V]struct{})
+			for item := range q2.iterate {
+				seen[selector(item)] = struct{}{}
+			}
+			emitted := make(map[V]struct{})
+			for item := range q.iterate {
+				val := selector(item)
+				if _, ok := seen[val]; !ok {
+					if _, already := emitted[val]; !already {
+						emitted[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
+					}
+				}
+			}
+		},
+	}
 }

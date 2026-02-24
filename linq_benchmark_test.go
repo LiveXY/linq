@@ -77,12 +77,12 @@ func BenchmarkFromString(b *testing.B) {
 }
 
 // BenchmarkUnion 基准测试：集合并集
-func BenchmarkUnion(b *testing.B) {
+func BenchmarkSliceUnion(b *testing.B) {
 	data1 := makeRange(0, 1000)
 	data2 := makeRange(500, 1500)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Union(data1, data2)
+		SliceUnion(data1, data2)
 	}
 }
 
@@ -131,7 +131,7 @@ func BenchmarkDistinct(b *testing.B) {
 	var query = From(data)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		query.Distinct().ToSlice()
+		Distinct(query).ToSlice()
 	}
 }
 
@@ -143,7 +143,7 @@ func BenchmarkIntersect(b *testing.B) {
 	q2 := From(data2)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		q1.Intersect(q2).ToSlice()
+		Intersect(q1, q2).ToSlice()
 	}
 }
 
@@ -155,7 +155,7 @@ func BenchmarkExcept(b *testing.B) {
 	q2 := From(data2)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		q1.Except(q2).ToSlice()
+		Except(q1, q2).ToSlice()
 	}
 }
 
@@ -210,8 +210,8 @@ func BenchmarkSumAverage(b *testing.B) {
 	q := From(data)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		q.SumIntBy(func(i int) int { return i })
-		q.AvgBy(func(i int) float64 { return float64(i) })
+		SumBy(q, func(i int) int { return i })
+		AverageBy(q, func(i int) float64 { return float64(i) })
 		MaxBy(q, func(i int) int { return i })
 	}
 }
@@ -248,7 +248,7 @@ func BenchmarkCollectionOps(b *testing.B) {
 		Every(data1, data2[:10])
 		Some(data1, data2[:100])
 		Difference(data1, data2)
-		Intersect(data1, data2)
+		SliceIntersect(data1, data2)
 	}
 }
 
@@ -275,7 +275,7 @@ func BenchmarkOtherOps(b *testing.B) {
 		q.Append(1001).ToSlice()
 		q.Prepend(-1).ToSlice()
 		q.DefaultIfEmpty(0).ToSlice()
-		q.Union(From(data)).ToSlice()
+		Union(q, From(data)).ToSlice()
 		q.Reverse().ToSlice()
 	}
 }
@@ -292,7 +292,7 @@ func BenchmarkTerminalLoop(b *testing.B) {
 		q.ForEach(func(i int) bool { return true })
 		q.ForEachIndexed(func(idx, val int) bool { return true })
 		q.ForEachParallel(2, func(i int) {})
-		q.IndexOf(func(i int) bool { return i == 50 })
+		q.IndexOfWith(func(i int) bool { return i == 50 })
 	}
 }
 
@@ -328,9 +328,9 @@ func BenchmarkUtilityFns(b *testing.B) {
 		Default(0, 1)
 		IsEmpty(0)
 		IsNotEmpty(1)
-		Try(func() error { return nil })
+		SliceTry(func() error { return nil })
 		IF(true, 1, 2)
-		Empty[int]()
+		SliceEmpty[int]()
 		Rand(data, 10)
 		Equal(data, data...)
 		EqualBy(data, data, func(i int) int { return i })
@@ -343,19 +343,19 @@ func BenchmarkAggregates(b *testing.B) {
 	q := From(data)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		q.SumInt8By(func(i int) int8 { return int8(i % 127) })
-		q.SumInt16By(func(i int) int16 { return int16(i % 32767) })
-		q.SumInt32By(func(i int) int32 { return int32(i) })
-		q.SumInt64By(func(i int) int64 { return int64(i) })
-		q.SumFloat32By(func(i int) float32 { return float32(i) })
-		q.SumFloat64By(func(i int) float64 { return float64(i) })
-		q.SumUInt8By(func(i int) uint8 { return uint8(i % 255) })
-		q.SumUInt16By(func(i int) uint16 { return uint16(i % 65535) })
-		q.SumUInt32By(func(i int) uint32 { return uint32(i) })
-		q.SumUInt64By(func(i int) uint64 { return uint64(i) })
-		q.SumUIntBy(func(i int) uint { return uint(i) })
-		q.AvgIntBy(func(i int) int { return i })
-		q.AvgInt64By(func(i int) int64 { return int64(i) })
+		SumBy(q, func(i int) int8 { return int8(i % 127) })
+		SumBy(q, func(i int) int16 { return int16(i % 32767) })
+		SumBy(q, func(i int) int32 { return int32(i) })
+		SumBy(q, func(i int) int64 { return int64(i) })
+		SumBy(q, func(i int) float32 { return float32(i) })
+		SumBy(q, func(i int) float64 { return float64(i) })
+		SumBy(q, func(i int) uint8 { return uint8(i % 255) })
+		SumBy(q, func(i int) uint16 { return uint16(i % 65535) })
+		SumBy(q, func(i int) uint32 { return uint32(i) })
+		SumBy(q, func(i int) uint64 { return uint64(i) })
+		SumBy(q, func(i int) uint { return uint(i) })
+		AverageBy(q, func(i int) int { return i })
+		AverageBy(q, func(i int) int64 { return int64(i) })
 	}
 }
 
@@ -439,7 +439,7 @@ func BenchmarkSearchUtilities(b *testing.B) {
 	data := makeRange(0, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ContainsBy(data, func(i int) bool { return i == 500 })
+		SliceContainsBy(data, func(i int) bool { return i == 500 })
 		LastIndexOf(From(data), 500)
 	}
 }
@@ -463,8 +463,7 @@ func BenchmarkOutputChannels(b *testing.B) {
 	q := From(data)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		c := make(chan int, 100)
-		q.ToChannel(c)
+		q.ToChannel(context.Background())
 	}
 }
 

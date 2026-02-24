@@ -186,3 +186,41 @@ func Repeat[T any](element T, count int) Query[T] {
 		capacity: count,
 	}
 }
+
+// Reverse 返回反转后的序列的查询对象
+func (q Query[T]) Reverse() Query[T] {
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			var items []T
+			if q.fastSlice != nil && q.fastWhere == nil {
+				items = q.fastSlice
+			} else {
+				for item := range q.iterate {
+					items = append(items, item)
+				}
+			}
+			for i := len(items) - 1; i >= 0; i-- {
+				if !yield(items[i]) {
+					return
+				}
+			}
+		},
+		capacity: q.capacity,
+	}
+}
+
+// AppendTo 追加到目标切片中
+func (q Query[T]) AppendTo(dest []T) []T {
+	for item := range q.iterate {
+		dest = append(dest, item)
+	}
+	return dest
+}
+
+// ToMapSlice 将序列转换为 []map[string]T，通常用于 JSON 序列化
+func (q Query[T]) ToMapSlice(selector func(T) map[string]T) (r []map[string]T) {
+	for item := range q.iterate {
+		r = append(r, selector(item))
+	}
+	return r
+}

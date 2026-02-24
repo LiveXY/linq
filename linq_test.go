@@ -40,8 +40,8 @@ func TestLinqWhere(t *testing.T) {
 
 // TestSum 测试数值聚合函数 (Sum, Avg, Min, Max)
 func TestSum(t *testing.T) {
-	fmt.Printf("年龄总和: %+v \n", From(members).SumIntBy(func(m *BMember) int { return m.Age }))
-	fmt.Printf("平均年龄: %+v \n", From(members).AvgIntBy(func(m *BMember) int { return m.Age }))
+	fmt.Printf("年龄总和: %+v \n", SumBy(From(members), func(m *BMember) int { return m.Age }))
+	fmt.Printf("平均年龄: %+v \n", AverageBy(From(members), func(m *BMember) int { return m.Age }))
 	fmt.Printf("年龄总和: %+v \n", SumBy(From(members), func(m *BMember) int { return m.Age }))
 	fmt.Printf("最小年龄: %+v \n", MinBy(From(members), func(m *BMember) int { return m.Age }))
 	fmt.Printf("最大年龄: %+v \n", MaxBy(From(members), func(m *BMember) int { return m.Age }))
@@ -62,8 +62,8 @@ func TestPage(t *testing.T) {
 }
 
 // TestUnion 测试集合并集 (Union)
-func TestUnion(t *testing.T) {
-	out := From(members).Union(From(members)).ToSlice()
+func TestSliceUnion(t *testing.T) {
+	out := Union(From(members), From(members)).ToSlice()
 	for _, v := range out {
 		fmt.Printf("%+v \n", v)
 	}
@@ -112,7 +112,7 @@ func TestFrom(t *testing.T) {
 		func(m *BMember) int8 { return m.Sex },
 	).ToSlice()
 	for _, v := range out3 {
-		fmt.Printf("Key: %v, Value: %v \n", v.Key, *v.Value)
+		fmt.Printf("Key: %v, Value: %v \n", v.Key, v.Value)
 	}
 	out4 := GroupBySelect(
 		From(members),
@@ -120,7 +120,7 @@ func TestFrom(t *testing.T) {
 		func(m *BMember) *BMember { return m },
 	).ToSlice()
 	for _, v := range out4 {
-		fmt.Printf("Key: %v, Value: %v \n", v.Key, *v.Value)
+		fmt.Printf("Key: %v, Value: %v \n", v.Key, v.Value)
 	}
 }
 
