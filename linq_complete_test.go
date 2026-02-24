@@ -553,10 +553,10 @@ func TestUniq(t *testing.T) {
 func TestContains(t *testing.T) {
 	nums := []int{1, 2, 3, 4, 5}
 
-	if !Contains(nums, 3) {
+	if !Contains(From(nums), 3) {
 		t.Error("3 期望返回 true")
 	}
-	if Contains(nums, 99) {
+	if Contains(From(nums), 99) {
 		t.Error("99 期望返回 false")
 	}
 }
@@ -565,10 +565,10 @@ func TestContains(t *testing.T) {
 func TestIndexOfFunction(t *testing.T) {
 	nums := []int{10, 20, 30, 40, 50}
 
-	if IndexOf(nums, 30) != 2 {
+	if IndexOf(From(nums), 30) != 2 {
 		t.Error("30 期望索引 2")
 	}
-	if IndexOf(nums, 99) != -1 {
+	if IndexOf(From(nums), 99) != -1 {
 		t.Error("99 期望 -1")
 	}
 }
@@ -577,7 +577,7 @@ func TestIndexOfFunction(t *testing.T) {
 func TestLastIndexOf(t *testing.T) {
 	nums := []int{1, 2, 3, 2, 1}
 
-	if LastIndexOf(nums, 2) != 3 {
+	if LastIndexOf(From(nums), 2) != 3 {
 		t.Error("2 期望最后索引 3")
 	}
 }
@@ -635,14 +635,14 @@ func TestMinMax(t *testing.T) {
 // TestSumFunction 测试 Sum 函数
 func TestSumFunction(t *testing.T) {
 	nums := []int{1, 2, 3, 4, 5}
-	result := Sum(nums)
+	result := Sum(From(nums))
 
 	if result != 15 {
 		t.Errorf("期望 15，实际得到 %d", result)
 	}
 
 	floats := []float64{1.5, 2.5, 3.0}
-	resultFloat := Sum(floats)
+	resultFloat := Sum(From(floats))
 	if resultFloat != 7.0 {
 		t.Errorf("期望 7.0，实际得到 %f", resultFloat)
 	}
@@ -748,7 +748,7 @@ func TestRand(t *testing.T) {
 
 	// 验证结果都在原数组中
 	for _, v := range result {
-		if !Contains(nums, v) {
+		if !Contains(From(nums), v) {
 			t.Errorf("意外的值: %d", v)
 		}
 	}

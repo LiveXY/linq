@@ -231,8 +231,8 @@ func BenchmarkSliceUtilities(b *testing.B) {
 	data := makeRange(0, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Contains(data, 500)
-		IndexOf(data, 500)
+		Contains(From(data), 500)
+		IndexOf(From(data), 500)
 		Uniq(data)
 		Reverse(data)
 		Shuffle(data)
@@ -364,7 +364,7 @@ func BenchmarkStaticAggregates(b *testing.B) {
 	data := makeRange(0, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Sum(data)
+		Sum(From(data))
 		Min(data...)
 		Max(data...)
 	}
@@ -440,7 +440,7 @@ func BenchmarkSearchUtilities(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ContainsBy(data, func(i int) bool { return i == 500 })
-		LastIndexOf(data, 500)
+		LastIndexOf(From(data), 500)
 	}
 }
 
