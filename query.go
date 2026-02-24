@@ -76,6 +76,19 @@ func (q Query[T]) ToChannel(ctx context.Context) <-chan T {
 	ch := make(chan T)
 	go func() {
 		defer close(ch)
+		if q.fastSlice != nil {
+			for _, item := range q.fastSlice {
+				if q.fastWhere != nil && !q.fastWhere(item) {
+					continue
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case ch <- item:
+				}
+			}
+			return
+		}
 		for item := range q.iterate {
 			select {
 			case <-ctx.Done():
@@ -209,8 +222,217 @@ func (q Query[T]) Reverse() Query[T] {
 	}
 }
 
+// Distinct 代理
+func (q Query[T]) Distinct() Query[T] {
+	if q.fastSlice != nil {
+		return Query[T]{
+			iterate: func(yield func(T) bool) {
+				seen := make(map[any]struct{})
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					key := any(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+			},
+			capacity: q.capacity,
+		}
+	}
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			seen := make(map[any]struct{})
+			for item := range q.iterate {
+				key := any(item)
+				if _, ok := seen[key]; !ok {
+					seen[key] = struct{}{}
+					if !yield(item) {
+						return
+					}
+				}
+			}
+		},
+	}
+}
+
+// Intersect 代理
+func (q Query[T]) Intersect(q2 Query[T]) Query[T] {
+	if q.fastSlice != nil && q2.fastSlice != nil {
+		return Query[T]{
+			iterate: func(yield func(T) bool) {
+				seen := make(map[any]struct{})
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					seen[any(item)] = struct{}{}
+				}
+				emitted := make(map[any]struct{})
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					key := any(item)
+					if _, ok := seen[key]; ok {
+						if _, already := emitted[key]; !already {
+							emitted[key] = struct{}{}
+							if !yield(item) {
+								return
+							}
+						}
+					}
+				}
+			},
+		}
+	}
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			seen := make(map[any]struct{})
+			for item := range q2.iterate {
+				seen[any(item)] = struct{}{}
+			}
+			emitted := make(map[any]struct{})
+			for item := range q.iterate {
+				key := any(item)
+				if _, ok := seen[key]; ok {
+					if _, already := emitted[key]; !already {
+						emitted[key] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+			}
+		},
+	}
+}
+
+// Union 代理
+func (q Query[T]) Union(q2 Query[T]) Query[T] {
+	if q.fastSlice != nil && q2.fastSlice != nil {
+		return Query[T]{
+			iterate: func(yield func(T) bool) {
+				seen := make(map[any]struct{})
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					key := any(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					key := any(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+			},
+		}
+	}
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			seen := make(map[any]struct{})
+			for item := range q.iterate {
+				key := any(item)
+				if _, ok := seen[key]; !ok {
+					seen[key] = struct{}{}
+					if !yield(item) {
+						return
+					}
+				}
+			}
+			for item := range q2.iterate {
+				key := any(item)
+				if _, ok := seen[key]; !ok {
+					seen[key] = struct{}{}
+					if !yield(item) {
+						return
+					}
+				}
+			}
+		},
+	}
+}
+
+// Except 代理
+func (q Query[T]) Except(q2 Query[T]) Query[T] {
+	if q.fastSlice != nil && q2.fastSlice != nil {
+		return Query[T]{
+			iterate: func(yield func(T) bool) {
+				seen := make(map[any]struct{})
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					seen[any(item)] = struct{}{}
+				}
+				emitted := make(map[any]struct{})
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					key := any(item)
+					if _, ok := seen[key]; !ok {
+						if _, already := emitted[key]; !already {
+							emitted[key] = struct{}{}
+							if !yield(item) {
+								return
+							}
+						}
+					}
+				}
+			},
+		}
+	}
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			seen := make(map[any]struct{})
+			for item := range q2.iterate {
+				seen[any(item)] = struct{}{}
+			}
+			emitted := make(map[any]struct{})
+			for item := range q.iterate {
+				key := any(item)
+				if _, ok := seen[key]; !ok {
+					if _, already := emitted[key]; !already {
+						emitted[key] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+			}
+		},
+	}
+}
+
 // AppendTo 追加到目标切片中
 func (q Query[T]) AppendTo(dest []T) []T {
+	if q.fastSlice != nil {
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
+			}
+			dest = append(dest, item)
+		}
+		return dest
+	}
 	for item := range q.iterate {
 		dest = append(dest, item)
 	}
@@ -219,6 +441,15 @@ func (q Query[T]) AppendTo(dest []T) []T {
 
 // ToMapSlice 将序列转换为 []map[string]T，通常用于 JSON 序列化
 func (q Query[T]) ToMapSlice(selector func(T) map[string]T) (r []map[string]T) {
+	if q.fastSlice != nil {
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
+			}
+			r = append(r, selector(item))
+		}
+		return r
+	}
 	for item := range q.iterate {
 		r = append(r, selector(item))
 	}

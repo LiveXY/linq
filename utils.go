@@ -137,12 +137,57 @@ func Max[T cmp.Ordered](list ...T) T {
 }
 
 // MinBy 根据选择器返回的值计算最小值
+// SliceMinBy 根据选择器返回的值计算最小值
+func SliceMinBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
+	first := true
+	for item := range q.iterate {
+		n := selector(item)
+		if first {
+			r = n
+			first = false
+		} else if n < r {
+			r = n
+		}
+	}
+	return
+}
 
-// MaxBy 根据选择器返回的值计算最大值
+// SliceMaxBy 根据选择器返回的值计算最大值
+func SliceMaxBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
+	first := true
+	for item := range q.iterate {
+		n := selector(item)
+		if first {
+			r = n
+			first = false
+		} else if n > r {
+			r = n
+		}
+	}
+	return
+}
 
-// SumBy 根据选择器返回的值计算总和
+// SliceSumBy 根据选择器返回的值计算总和
+func SliceSumBy[T any, V Integer | Float | Complex](q Query[T], selector func(T) V) (r V) {
+	for item := range q.iterate {
+		r += selector(item)
+	}
+	return
+}
 
-// AvgBy 计算平均值，兼容所有类型
+// SliceAvgBy 计算平均值，兼容所有类型
+func SliceAvgBy[T any, V Integer | Float](q Query[T], selector func(T) V) float64 {
+	var sum float64
+	var n int
+	for item := range q.iterate {
+		sum += float64(selector(item))
+		n++
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
+}
 
 // Sum 计算切片中所有元素的总和
 func SliceSum[T Float | Integer | Complex](list []T) T {

@@ -64,39 +64,79 @@ func (q Query[T]) ForEachParallelCtx(ctx context.Context, workers int, action fu
 
 	errCh := make(chan any, workers)
 
-loop:
-	for item := range q.iterate {
-		select {
-		case <-workerCtx.Done():
-			break loop
-		case sem <- token{}:
-		case panicErr := <-errCh:
-			if panicErr != nil {
-				panic(panicErr)
+	if q.fastSlice != nil {
+	loopSlice:
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
 			}
-		}
-
-		wg.Add(1)
-		go func(val T) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			defer func() {
-				if r := recover(); r != nil {
-					select {
-					case errCh <- r: // 上报 panic 并尝试取消后续任务
-						cancel()
-					default:
-					}
-				}
-			}()
-
 			select {
 			case <-workerCtx.Done():
-				return
-			default:
-				action(val)
+				break loopSlice
+			case sem <- token{}:
+			case panicErr := <-errCh:
+				if panicErr != nil {
+					panic(panicErr)
+				}
 			}
-		}(item)
+
+			wg.Add(1)
+			go func(val T) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				defer func() {
+					if r := recover(); r != nil {
+						select {
+						case errCh <- r:
+							cancel()
+						default:
+						}
+					}
+				}()
+
+				select {
+				case <-workerCtx.Done():
+					return
+				default:
+					action(val)
+				}
+			}(item)
+		}
+	} else {
+	loopIter:
+		for item := range q.iterate {
+			select {
+			case <-workerCtx.Done():
+				break loopIter
+			case sem <- token{}:
+			case panicErr := <-errCh:
+				if panicErr != nil {
+					panic(panicErr)
+				}
+			}
+
+			wg.Add(1)
+			go func(val T) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				defer func() {
+					if r := recover(); r != nil {
+						select {
+						case errCh <- r:
+							cancel()
+						default:
+						}
+					}
+				}()
+
+				select {
+				case <-workerCtx.Done():
+					return
+				default:
+					action(val)
+				}
+			}(item)
+		}
 	}
 
 	wg.Wait()
@@ -117,6 +157,23 @@ func (q Query[T]) ForEachParallel(workers int, action func(T)) {
 
 // MinBy 根据选择器返回最小值
 func MinBy[T any, R cmp.Ordered](q Query[T], selector func(T) R) T {
+	if q.fastSlice != nil {
+		var min T
+		var minR R
+		first := true
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			val := selector(v)
+			if first || cmp.Compare(val, minR) < 0 {
+				min = v
+				minR = val
+				first = false
+			}
+		}
+		return min
+	}
 	var min T
 	var minR R
 	first := true
@@ -133,6 +190,23 @@ func MinBy[T any, R cmp.Ordered](q Query[T], selector func(T) R) T {
 
 // MaxBy 根据选择器返回最大值
 func MaxBy[T any, R cmp.Ordered](q Query[T], selector func(T) R) T {
+	if q.fastSlice != nil {
+		var max T
+		var maxR R
+		first := true
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			val := selector(v)
+			if first || cmp.Compare(val, maxR) > 0 {
+				max = v
+				maxR = val
+				first = false
+			}
+		}
+		return max
+	}
 	var max T
 	var maxR R
 	first := true

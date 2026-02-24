@@ -54,6 +54,21 @@ func (q Query[T]) Skip(count int) Query[T] {
 	return Query[T]{
 		iterate: func(yield func(T) bool) {
 			n := count
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					if n > 0 {
+						n--
+						continue
+					}
+					if !yield(item) {
+						break
+					}
+				}
+				return
+			}
 			for item := range q.iterate {
 				if n > 0 {
 					n--
@@ -81,6 +96,21 @@ func (q Query[T]) Take(count int) Query[T] {
 	return Query[T]{
 		iterate: func(yield func(T) bool) {
 			n := count
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					if n <= 0 {
+						break
+					}
+					n--
+					if !yield(item) {
+						break
+					}
+				}
+				return
+			}
 			for item := range q.iterate {
 				if n <= 0 {
 					break
@@ -275,6 +305,7 @@ func (q Query[T]) Concat(q2 Query[T]) Query[T] {
 				}
 			}
 		},
+		capacity: q.capacity + q2.capacity,
 	}
 }
 
@@ -289,10 +320,22 @@ func (q Query[T]) DefaultIfEmpty(defaultValue T) Query[T] {
 	return Query[T]{
 		iterate: func(yield func(T) bool) {
 			empty := true
-			for item := range q.iterate {
-				empty = false
-				if !yield(item) {
-					return
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					empty = false
+					if !yield(item) {
+						return
+					}
+				}
+			} else {
+				for item := range q.iterate {
+					empty = false
+					if !yield(item) {
+						return
+					}
 				}
 			}
 			if empty {

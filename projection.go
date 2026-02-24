@@ -9,12 +9,24 @@ import (
 func Select[T, V any](q Query[T], selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func(yield func(V) bool) {
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					if !yield(selector(item)) {
+						return
+					}
+				}
+				return
+			}
 			for item := range q.iterate {
 				if !yield(selector(item)) {
 					return
 				}
 			}
 		},
+		capacity: q.capacity,
 	}
 }
 
@@ -33,6 +45,41 @@ func SelectAsyncCtx[T, V any](ctx context.Context, q Query[T], workers int, sele
 			go func() {
 				defer close(outCh)
 				sem := make(chan struct{}, workers)
+				if q.fastSlice != nil {
+					for _, item := range q.fastSlice {
+						if q.fastWhere != nil && !q.fastWhere(item) {
+							continue
+						}
+						select {
+						case <-workerCtx.Done():
+							return
+						case sem <- struct{}{}:
+						}
+
+						wg.Add(1)
+						go func(val T) {
+							defer wg.Done()
+							defer func() { <-sem }()
+							defer func() {
+								if r := recover(); r != nil {
+									select {
+									case errCh <- r:
+										cancel()
+									default:
+									}
+								}
+							}()
+							res := selector(val)
+							select {
+							case <-workerCtx.Done():
+								return
+							case outCh <- res:
+							}
+						}(item)
+					}
+					wg.Wait()
+					return
+				}
 				for item := range q.iterate {
 					select {
 					case <-workerCtx.Done():
@@ -90,9 +137,19 @@ func GroupBy[T any, K comparable](q Query[T], keySelector func(T) K) Query[KV[K,
 	return Query[KV[K, []T]]{
 		iterate: func(yield func(KV[K, []T]) bool) {
 			groups := make(map[K][]T)
-			for item := range q.iterate {
-				key := keySelector(item)
-				groups[key] = append(groups[key], item)
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					key := keySelector(item)
+					groups[key] = append(groups[key], item)
+				}
+			} else {
+				for item := range q.iterate {
+					key := keySelector(item)
+					groups[key] = append(groups[key], item)
+				}
 			}
 			for k, v := range groups {
 				if !yield(KV[K, []T]{Key: k, Value: v}) {
@@ -108,9 +165,19 @@ func GroupBySelect[T any, K comparable, V any](q Query[T], keySelector func(T) K
 	return Query[KV[K, []V]]{
 		iterate: func(yield func(KV[K, []V]) bool) {
 			groups := make(map[K][]V)
-			for item := range q.iterate {
-				key := keySelector(item)
-				groups[key] = append(groups[key], elementSelector(item))
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					key := keySelector(item)
+					groups[key] = append(groups[key], elementSelector(item))
+				}
+			} else {
+				for item := range q.iterate {
+					key := keySelector(item)
+					groups[key] = append(groups[key], elementSelector(item))
+				}
 			}
 			for k, v := range groups {
 				if !yield(KV[K, []V]{Key: k, Value: v}) {
@@ -124,6 +191,15 @@ func GroupBySelect[T any, K comparable, V any](q Query[T], keySelector func(T) K
 // ToMap 根据选择器将序列转为 Map
 func ToMap[T any, K comparable](q Query[T], keySelector func(T) K) map[K]T {
 	m := make(map[K]T, q.capacity)
+	if q.fastSlice != nil {
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
+			}
+			m[keySelector(item)] = item
+		}
+		return m
+	}
 	for item := range q.iterate {
 		m[keySelector(item)] = item
 	}
@@ -133,6 +209,15 @@ func ToMap[T any, K comparable](q Query[T], keySelector func(T) K) map[K]T {
 // ToMapSelect 根据键选择器和值选择器转换序列
 func ToMapSelect[T any, K comparable, V any](q Query[T], keySelector func(T) K, valueSelector func(T) V) map[K]V {
 	m := make(map[K]V, q.capacity)
+	if q.fastSlice != nil {
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
+			}
+			m[keySelector(item)] = valueSelector(item)
+		}
+		return m
+	}
 	for item := range q.iterate {
 		m[keySelector(item)] = valueSelector(item)
 	}
@@ -159,6 +244,20 @@ func SelectAsync[T, V comparable](q Query[T], workers int, selector func(T) V) Q
 func WhereSelect[T, V comparable](q Query[T], selector func(T) (V, bool)) Query[V] {
 	return Query[V]{
 		iterate: func(yield func(V) bool) {
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val, ok := selector(item)
+					if ok {
+						if !yield(val) {
+							return
+						}
+					}
+				}
+				return
+			}
 			for item := range q.iterate {
 				val, ok := selector(item)
 				if ok {
@@ -168,6 +267,7 @@ func WhereSelect[T, V comparable](q Query[T], selector func(T) (V, bool)) Query[
 				}
 			}
 		},
+		capacity: q.capacity,
 	}
 }
 
@@ -176,6 +276,21 @@ func DistinctSelect[T any, V comparable](q Query[T], selector func(T) V) Query[V
 	return Query[V]{
 		iterate: func(yield func(V) bool) {
 			seen := make(map[V]struct{})
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
+					}
+				}
+				return
+			}
 			for item := range q.iterate {
 				val := selector(item)
 				if _, ok := seen[val]; !ok {
@@ -186,6 +301,7 @@ func DistinctSelect[T any, V comparable](q Query[T], selector func(T) V) Query[V
 				}
 			}
 		},
+		capacity: q.capacity,
 	}
 }
 
@@ -194,21 +310,51 @@ func UnionSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Query[
 	return Query[V]{
 		iterate: func(yield func(V) bool) {
 			seen := make(map[V]struct{})
-			for item := range q.iterate {
-				val := selector(item)
-				if _, ok := seen[val]; !ok {
-					seen[val] = struct{}{}
-					if !yield(val) {
-						return
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
+					}
+				}
+			} else {
+				for item := range q.iterate {
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
 					}
 				}
 			}
-			for item := range q2.iterate {
-				val := selector(item)
-				if _, ok := seen[val]; !ok {
-					seen[val] = struct{}{}
-					if !yield(val) {
-						return
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
+					}
+				}
+			} else {
+				for item := range q2.iterate {
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
 					}
 				}
 			}
@@ -225,6 +371,23 @@ func IntersectSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Qu
 				seen[selector(item)] = struct{}{}
 			}
 			emitted := make(map[V]struct{})
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if _, ok := seen[val]; ok {
+						if _, already := emitted[val]; !already {
+							emitted[val] = struct{}{}
+							if !yield(val) {
+								return
+							}
+						}
+					}
+				}
+				return
+			}
 			for item := range q.iterate {
 				val := selector(item)
 				if _, ok := seen[val]; ok {
@@ -249,6 +412,23 @@ func ExceptSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Query
 				seen[selector(item)] = struct{}{}
 			}
 			emitted := make(map[V]struct{})
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						if _, already := emitted[val]; !already {
+							emitted[val] = struct{}{}
+							if !yield(val) {
+								return
+							}
+						}
+					}
+				}
+				return
+			}
 			for item := range q.iterate {
 				val := selector(item)
 				if _, ok := seen[val]; !ok {

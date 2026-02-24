@@ -183,3 +183,67 @@ func (oq OrderedQuery[T]) ForEach(action func(T) bool) {
 func (oq OrderedQuery[T]) Reverse() Query[T] {
 	return oq.ToQuery().Reverse()
 }
+
+// Append 代理
+func (oq OrderedQuery[T]) Append(item T) Query[T] {
+	return oq.ToQuery().Append(item)
+}
+
+// Prepend 代理
+func (oq OrderedQuery[T]) Prepend(item T) Query[T] {
+	return oq.ToQuery().Prepend(item)
+}
+
+// DefaultIfEmpty 代理
+func (oq OrderedQuery[T]) DefaultIfEmpty(defaultValue T) Query[T] {
+	return oq.ToQuery().DefaultIfEmpty(defaultValue)
+}
+
+// Page 代理
+func (oq OrderedQuery[T]) Page(pageNumber, pageSize int) Query[T] {
+	return oq.ToQuery().Page(pageNumber, pageSize)
+}
+
+// FirstDefault 代理
+func (oq OrderedQuery[T]) FirstDefault(defaultValue ...T) T {
+	return oq.ToQuery().FirstDefault(defaultValue...)
+}
+
+// LastDefault 代理
+func (oq OrderedQuery[T]) LastDefault(defaultValue ...T) T {
+	return oq.ToQuery().LastDefault(defaultValue...)
+}
+
+// ForEachIndexed 代理
+func (oq OrderedQuery[T]) ForEachIndexed(action func(int, T) bool) {
+	oq.ToQuery().ForEachIndexed(action)
+}
+
+// Distinct 代理 (仅当 T 可比较时有效)
+func (oq OrderedQuery[T]) Distinct() Query[T] {
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			seen := make(map[any]struct{})
+			for item := range oq.ToQuery().iterate {
+				if _, ok := seen[any(item)]; !ok {
+					seen[any(item)] = struct{}{}
+					if !yield(item) {
+						return
+					}
+				}
+			}
+		},
+	}
+}
+
+// IndexOf 代理 (仅当 T 可比较时有效)
+func (oq OrderedQuery[T]) IndexOf(value T) int {
+	index := 0
+	for item := range oq.ToQuery().iterate {
+		if any(item) == any(value) {
+			return index
+		}
+		index++
+	}
+	return -1
+}

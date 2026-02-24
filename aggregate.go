@@ -58,6 +58,17 @@ func (q Query[T]) Any() bool {
 
 // AnyWith 判断序列是否包含满足指定条件的元素
 func (q Query[T]) AnyWith(predicate func(T) bool) bool {
+	if q.fastSlice != nil {
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			if predicate(v) {
+				return true
+			}
+		}
+		return false
+	}
 	for item := range q.iterate {
 		if predicate(item) {
 			return true
@@ -68,6 +79,17 @@ func (q Query[T]) AnyWith(predicate func(T) bool) bool {
 
 // All 判断序列中的所有元素是否都满足指定条件
 func (q Query[T]) All(predicate func(T) bool) bool {
+	if q.fastSlice != nil {
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			if !predicate(v) {
+				return false
+			}
+		}
+		return true
+	}
 	for item := range q.iterate {
 		if !predicate(item) {
 			return false
@@ -78,6 +100,16 @@ func (q Query[T]) All(predicate func(T) bool) bool {
 
 // Sum 计算数值序列的和
 func Sum[T Integer | Float | Complex](q Query[T]) T {
+	if q.fastSlice != nil {
+		var sum T
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			sum += v
+		}
+		return sum
+	}
 	var sum T
 	for item := range q.iterate {
 		sum += item
@@ -87,6 +119,16 @@ func Sum[T Integer | Float | Complex](q Query[T]) T {
 
 // SumBy 根据选择器获取成员和
 func SumBy[T any, R Integer | Float | Complex](q Query[T], selector func(T) R) R {
+	if q.fastSlice != nil {
+		var sum R
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			sum += selector(v)
+		}
+		return sum
+	}
 	var sum R
 	for item := range q.iterate {
 		sum += selector(item)
@@ -96,6 +138,21 @@ func SumBy[T any, R Integer | Float | Complex](q Query[T], selector func(T) R) R
 
 // Average 计算数值序列的平均值（float64）
 func Average[T Integer | Float](q Query[T]) float64 {
+	if q.fastSlice != nil {
+		var sum float64
+		count := 0
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			sum += float64(v)
+			count++
+		}
+		if count == 0 {
+			return 0
+		}
+		return sum / float64(count)
+	}
 	var sum float64
 	count := 0
 	for item := range q.iterate {
@@ -110,6 +167,21 @@ func Average[T Integer | Float](q Query[T]) float64 {
 
 // AverageBy 根据选择器计算平均值
 func AverageBy[T any, R Integer | Float](q Query[T], selector func(T) R) float64 {
+	if q.fastSlice != nil {
+		var sum float64
+		count := 0
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			sum += float64(selector(v))
+			count++
+		}
+		if count == 0 {
+			return 0
+		}
+		return sum / float64(count)
+	}
 	var sum float64
 	count := 0
 	for item := range q.iterate {
@@ -122,6 +194,27 @@ func AverageBy[T any, R Integer | Float](q Query[T], selector func(T) R) float64
 	return sum / float64(count)
 }
 
+// AvgBy 顶级函数别名
+func AvgBy[T any, R Integer | Float](q Query[T], selector func(T) R) float64 {
+	return AverageBy(q, selector)
+}
+
+func (q Query[T]) SumIntBy(selector func(T) int) int             { return SumBy(q, selector) }
+func (q Query[T]) SumInt8By(selector func(T) int8) int8          { return SumBy(q, selector) }
+func (q Query[T]) SumInt16By(selector func(T) int16) int16       { return SumBy(q, selector) }
+func (q Query[T]) SumInt32By(selector func(T) int32) int32       { return SumBy(q, selector) }
+func (q Query[T]) SumInt64By(selector func(T) int64) int64       { return SumBy(q, selector) }
+func (q Query[T]) SumUIntBy(selector func(T) uint) uint          { return SumBy(q, selector) }
+func (q Query[T]) SumUInt8By(selector func(T) uint8) uint8       { return SumBy(q, selector) }
+func (q Query[T]) SumUInt16By(selector func(T) uint16) uint16    { return SumBy(q, selector) }
+func (q Query[T]) SumUInt32By(selector func(T) uint32) uint32    { return SumBy(q, selector) }
+func (q Query[T]) SumUInt64By(selector func(T) uint64) uint64    { return SumBy(q, selector) }
+func (q Query[T]) SumFloat32By(selector func(T) float32) float32 { return SumBy(q, selector) }
+func (q Query[T]) SumFloat64By(selector func(T) float64) float64 { return SumBy(q, selector) }
+func (q Query[T]) AvgBy(selector func(T) float64) float64        { return AverageBy(q, selector) }
+func (q Query[T]) AvgIntBy(selector func(T) int) float64         { return AverageBy(q, selector) }
+func (q Query[T]) AvgInt64By(selector func(T) int64) float64     { return AverageBy(q, selector) }
+
 // Contains 判断序列中是否包含指定的元素
 func Contains[T comparable](q Query[T], value T) bool {
 	return q.AnyWith(func(t T) bool { return t == value })
@@ -129,6 +222,16 @@ func Contains[T comparable](q Query[T], value T) bool {
 
 // First 返回第一元素，如果没有则返回零值
 func (q Query[T]) First() T {
+	if q.fastSlice != nil {
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			return v
+		}
+		var zero T
+		return zero
+	}
 	for item := range q.iterate {
 		return item
 	}
@@ -138,6 +241,18 @@ func (q Query[T]) First() T {
 
 // FirstWith 返回满足条件的第一个元素
 func (q Query[T]) FirstWith(predicate func(T) bool) T {
+	if q.fastSlice != nil {
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			if predicate(v) {
+				return v
+			}
+		}
+		var zero T
+		return zero
+	}
 	for item := range q.iterate {
 		if predicate(item) {
 			return item
@@ -173,6 +288,21 @@ func (q Query[T]) Last() T {
 
 // LastWith 返回满足条件的最后一个元素
 func (q Query[T]) LastWith(predicate func(T) bool) T {
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		pre := q.fastWhere
+		for i := len(source) - 1; i >= 0; i-- {
+			v := source[i]
+			if pre != nil && !pre(v) {
+				continue
+			}
+			if predicate(v) {
+				return v
+			}
+		}
+		var zero T
+		return zero
+	}
 	var last T
 	for item := range q.iterate {
 		if predicate(item) {
@@ -184,8 +314,17 @@ func (q Query[T]) LastWith(predicate func(T) bool) T {
 
 // FirstDefault 返回第一个元素，若空返回 defaultValue
 func (q Query[T]) FirstDefault(defaultValue ...T) T {
-	for item := range q.iterate {
-		return item
+	if q.fastSlice != nil {
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			return v
+		}
+	} else {
+		for item := range q.iterate {
+			return item
+		}
 	}
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
@@ -196,14 +335,26 @@ func (q Query[T]) FirstDefault(defaultValue ...T) T {
 
 // LastDefault 返回最后一个元素，若空返回 defaultValue
 func (q Query[T]) LastDefault(defaultValue ...T) T {
-	var last T
-	found := false
-	for item := range q.iterate {
-		last = item
-		found = true
-	}
-	if found {
-		return last
+	if q.fastSlice != nil {
+		source := q.fastSlice
+		pre := q.fastWhere
+		for i := len(source) - 1; i >= 0; i-- {
+			v := source[i]
+			if pre != nil && !pre(v) {
+				continue
+			}
+			return v
+		}
+	} else {
+		var last T
+		found := false
+		for item := range q.iterate {
+			last = item
+			found = true
+		}
+		if found {
+			return last
+		}
 	}
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
@@ -216,12 +367,26 @@ func (q Query[T]) LastDefault(defaultValue ...T) T {
 func (q Query[T]) Single() T {
 	var val T
 	count := 0
-	for item := range q.iterate {
-		val = item
-		count++
-		if count > 1 {
-			var zero T
-			return zero
+	if q.fastSlice != nil {
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			val = v
+			count++
+			if count > 1 {
+				var zero T
+				return zero
+			}
+		}
+	} else {
+		for item := range q.iterate {
+			val = item
+			count++
+			if count > 1 {
+				var zero T
+				return zero
+			}
 		}
 	}
 	if count == 0 {
@@ -240,15 +405,32 @@ func (q Query[T]) SingleWith(predicate func(T) bool) T {
 func (q Query[T]) SingleDefault(defaultValue ...T) T {
 	var val T
 	count := 0
-	for item := range q.iterate {
-		val = item
-		count++
-		if count > 1 {
-			if len(defaultValue) > 0 {
-				return defaultValue[0]
+	if q.fastSlice != nil {
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
 			}
-			var zero T
-			return zero
+			val = v
+			count++
+			if count > 1 {
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				var zero T
+				return zero
+			}
+		}
+	} else {
+		for item := range q.iterate {
+			val = item
+			count++
+			if count > 1 {
+				if len(defaultValue) > 0 {
+					return defaultValue[0]
+				}
+				var zero T
+				return zero
+			}
 		}
 	}
 	if count == 0 {
@@ -264,11 +446,23 @@ func (q Query[T]) SingleDefault(defaultValue ...T) T {
 // IndexOf 返回元素的索引
 func IndexOf[T comparable](q Query[T], value T) int {
 	index := 0
-	for item := range q.iterate {
-		if item == value {
-			return index
+	if q.fastSlice != nil {
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
+			}
+			if item == value {
+				return index
+			}
+			index++
 		}
-		index++
+	} else {
+		for item := range q.iterate {
+			if item == value {
+				return index
+			}
+			index++
+		}
 	}
 	return -1
 }
@@ -276,11 +470,23 @@ func IndexOf[T comparable](q Query[T], value T) int {
 // IndexOfWith 返回满足条件的元素的索引
 func (q Query[T]) IndexOfWith(predicate func(T) bool) int {
 	index := 0
-	for item := range q.iterate {
-		if predicate(item) {
-			return index
+	if q.fastSlice != nil {
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
+			}
+			if predicate(item) {
+				return index
+			}
+			index++
 		}
-		index++
+	} else {
+		for item := range q.iterate {
+			if predicate(item) {
+				return index
+			}
+			index++
+		}
 	}
 	return -1
 }
@@ -289,11 +495,23 @@ func (q Query[T]) IndexOfWith(predicate func(T) bool) int {
 func LastIndexOf[T comparable](q Query[T], value T) int {
 	index := 0
 	last := -1
-	for item := range q.iterate {
-		if item == value {
-			last = index
+	if q.fastSlice != nil {
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
+			}
+			if item == value {
+				last = index
+			}
+			index++
 		}
-		index++
+	} else {
+		for item := range q.iterate {
+			if item == value {
+				last = index
+			}
+			index++
+		}
 	}
 	return last
 }
@@ -302,11 +520,23 @@ func LastIndexOf[T comparable](q Query[T], value T) int {
 func (q Query[T]) LastIndexOfWith(predicate func(T) bool) int {
 	index := 0
 	last := -1
-	for item := range q.iterate {
-		if predicate(item) {
-			last = index
+	if q.fastSlice != nil {
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
+			}
+			if predicate(item) {
+				last = index
+			}
+			index++
 		}
-		index++
+	} else {
+		for item := range q.iterate {
+			if predicate(item) {
+				last = index
+			}
+			index++
+		}
 	}
 	return last
 }

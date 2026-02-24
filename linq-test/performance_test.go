@@ -560,18 +560,27 @@ func Benchmark_LiveXY_Distinct(b *testing.B) {
 	query := livexy.From(duplicateData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = query.Distinct().ToSlice()
+		_ = livexy.Distinct(query).ToSlice()
 	}
 }
 
 // Benchmark_LiveXY2_Distinct 测试使用 LiveXY.Distinct 的自定义键去重性能
-func Benchmark_LiveXY2_Distinct(b *testing.B) {
+func Benchmark_LiveXY_Select_Distinct(b *testing.B) {
 	query := livexy.From(duplicateData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.DistinctSelect(query, func(i int) int {
 			return i
 		}).ToSlice()
+	}
+}
+
+// Benchmark_LiveXY3_Distinct 测试使用 LiveXY.Distinct 的自定义键去重性能
+func Benchmark_LiveXY3_Distinct(b *testing.B) {
+	query := livexy.From(duplicateData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = query.Distinct().ToSlice()
 	}
 }
 
@@ -622,7 +631,7 @@ func Benchmark_LiveXY_Union(b *testing.B) {
 	q2 := livexy.From(intDataOther)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = q1.Union(q2).ToSlice()
+		_ = livexy.Union(q1, q2).ToSlice()
 	}
 }
 
@@ -638,11 +647,11 @@ func Benchmark_LiveXY2_Union(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY3_Union 测试使用 LiveXY.Intersect 的交集性能
+// Benchmark_LiveXY3_Union 测试使用 LiveXY.Union 的交集性能
 func Benchmark_LiveXY3_Union(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Union(intData, intDataOther)
+		_ = livexy.SliceUnion(intData, intDataOther)
 	}
 }
 
@@ -691,7 +700,7 @@ func Benchmark_LiveXY_Contains(b *testing.B) {
 	target := size - 1
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Contains(intData, target)
+		_ = livexy.SliceContains(intData, target)
 	}
 }
 
@@ -1012,7 +1021,7 @@ func Benchmark_LiveXY_Intersect(b *testing.B) {
 	q2 := livexy.From(intDataOther)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = q1.Intersect(q2).ToSlice()
+		_ = livexy.Intersect(q1, q2).ToSlice()
 	}
 }
 
@@ -1032,7 +1041,7 @@ func Benchmark_LiveXY2_Intersect(b *testing.B) {
 func Benchmark_LiveXY3_Intersect(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Intersect(intData, intDataOther)
+		_ = livexy.SliceIntersect(intData, intDataOther)
 	}
 }
 
@@ -1079,7 +1088,7 @@ func Benchmark_LiveXY_Except(b *testing.B) {
 	q2 := livexy.From(intDataOther)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = q1.Except(q2).ToSlice()
+		_ = livexy.Except(q1, q2).ToSlice()
 	}
 }
 
