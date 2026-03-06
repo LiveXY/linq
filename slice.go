@@ -7,12 +7,12 @@ import (
 )
 
 // SliceMap 将序列中的每个元素转换为新的对象
-func SliceMap[T, V comparable](list []T, selector func(T) V) []V {
+func SliceMap[T, V any](list []T, selector func(T) V) []V {
 	return SliceMapIndexed(list, func(item T, _ int) V { return selector(item) })
 }
 
 // SliceMapIndexed 将序列中的每个元素转换为新的对象
-func SliceMapIndexed[T, V comparable](list []T, selector func(T, int) V) []V {
+func SliceMapIndexed[T, V any](list []T, selector func(T, int) V) []V {
 	result := make([]V, len(list))
 	for i := range list {
 		result[i] = selector(list[i], i)
@@ -21,12 +21,12 @@ func SliceMapIndexed[T, V comparable](list []T, selector func(T, int) V) []V {
 }
 
 // SliceWhere 返回满足指定条件的元素序列
-func SliceWhere[T comparable](list []T, predicate func(item T) bool) []T {
+func SliceWhere[T any](list []T, predicate func(item T) bool) []T {
 	return SliceWhereIndexed(list, func(item T, _ int) bool { return predicate(item) })
 }
 
 // SliceWhereIndexed 返回满足指定条件的元素序列
-func SliceWhereIndexed[T comparable](list []T, predicate func(T, int) bool) []T {
+func SliceWhereIndexed[T any](list []T, predicate func(T, int) bool) []T {
 	result := make([]T, 0, len(list))
 	for i := range list {
 		if predicate(list[i], i) {
@@ -56,7 +56,7 @@ func SliceContains[T comparable](list []T, element T) bool {
 }
 
 // SliceContainsBy 判断切片是否包含指定元素, 并附带条件
-func SliceContainsBy[T comparable](list []T, predicate func(T) bool) bool {
+func SliceContainsBy[T any](list []T, predicate func(T) bool) bool {
 	return slices.ContainsFunc(list, predicate)
 }
 
@@ -81,7 +81,7 @@ func SliceLastIndexOf[T comparable](list []T, element T) int {
 	return -1
 }
 
-func sliceReverse[T comparable](list []T) {
+func sliceReverse[T any](list []T) {
 	length := len(list)
 	half := length / 2
 	for i := 0; i < half; i++ {
@@ -91,13 +91,13 @@ func sliceReverse[T comparable](list []T) {
 }
 
 // SliceReverse 反转切片中的元素, 缺点原地反转
-func SliceReverse[T comparable](list []T) []T {
+func SliceReverse[T any](list []T) []T {
 	sliceReverse(list)
 	return list
 }
 
 // SliceCloneReverse 反转切片中的元素, 返回新的切片
-func SliceCloneReverse[T comparable](list []T) []T {
+func SliceCloneReverse[T any](list []T) []T {
 	data := make([]T, len(list))
 	copy(data, list)
 	sliceReverse(data)
@@ -213,9 +213,9 @@ func SliceSome[T comparable](list, subset []T) bool {
 	}
 
 	// 投机命中：先用 list 的前一小段与 subset 做扫描，提升高命中场景性能
-	limit := 50
-	if n < limit {
-		limit = n
+	limit := n
+	if limit > 50 {
+		limit = 50
 	}
 	for i := 0; i < limit; i++ {
 		v := list[i]
@@ -344,7 +344,7 @@ func SliceWithout[T comparable](list []T, exclude ...T) []T {
 }
 
 // SliceWithoutIndex 从切片中移除指定的索引的元素
-func SliceWithoutIndex[T comparable](list []T, index ...int) []T {
+func SliceWithoutIndex[T any](list []T, index ...int) []T {
 	length := len(list)
 	if len(index) == 0 || length == 0 {
 		return list
@@ -416,7 +416,7 @@ func SliceEqualBy[T, K comparable](list1, list2 []T, selector func(T) K) bool {
 }
 
 // SliceRand 随机从切片中选取 count 个元素
-func SliceRand[T comparable](list []T, count int) []T {
+func SliceRand[T any](list []T, count int) []T {
 	size := len(list)
 	if count > size {
 		count = size
@@ -437,7 +437,7 @@ func SliceRand[T comparable](list []T, count int) []T {
 }
 
 // SliceShuffle 随机打乱切片中的元素，返回新切片，原切片不变
-func SliceShuffle[T comparable](list []T) []T {
+func SliceShuffle[T any](list []T) []T {
 	result := make([]T, len(list))
 	copy(result, list)
 	rand.Shuffle(len(result), func(i, j int) {
@@ -447,7 +447,7 @@ func SliceShuffle[T comparable](list []T) []T {
 }
 
 // SliceConcat 合并多个结果集
-func SliceConcat[T comparable](lists ...[]T) []T {
+func SliceConcat[T any](lists ...[]T) []T {
 	totalLen := 0
 	for i := range lists {
 		totalLen += len(lists[i])

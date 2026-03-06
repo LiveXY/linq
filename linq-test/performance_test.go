@@ -88,7 +88,7 @@ func BenchmarkLiveXYWhere(b *testing.B) {
 // BenchmarkLiveXYWhereSlice 测试 LiveXY 库的切片级过滤性能
 func BenchmarkLiveXYWhereSlice(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Where(intData, func(i int) bool {
+		_ = livexy.SliceWhere(intData, func(i int) bool {
 			return i%2 == 0
 		})
 	}
@@ -154,7 +154,7 @@ func BenchmarkLiveXYSelect(b *testing.B) {
 // BenchmarkLiveXYMapSlice 测试 LiveXY 库的切片级映射性能
 func BenchmarkLiveXYMapSlice(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Map(intData, func(i int) int {
+		_ = livexy.SliceMap(intData, func(i int) int {
 			return i * 2
 		})
 	}
@@ -220,10 +220,10 @@ func BenchmarkLiveXYChainWhereSelect(b *testing.B) {
 // BenchmarkLiveXYChainSlice 测试 LiveXY 库的切片级链式调用性能
 func BenchmarkLiveXYChainSlice(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		filtered := livexy.Where(intData, func(i int) bool {
+		filtered := livexy.SliceWhere(intData, func(i int) bool {
 			return i%2 == 0
 		})
-		_ = livexy.Map(filtered, func(i int) int {
+		_ = livexy.SliceMap(filtered, func(i int) int {
 			return i * 2
 		})
 	}
@@ -287,10 +287,10 @@ func BenchmarkLiveXYStruct(b *testing.B) {
 // BenchmarkLiveXYStructSlice 测试 LiveXY 库的切片级结构体处理性能
 func BenchmarkLiveXYStructSlice(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		filtered := livexy.Where(userList, func(u User) bool {
+		filtered := livexy.SliceWhere(userList, func(u User) bool {
 			return u.Age > 18
 		})
-		livexy.Map(filtered, func(u User) string {
+		livexy.SliceMap(filtered, func(u User) string {
 			return u.Name
 		})
 	}
@@ -786,7 +786,7 @@ func BenchmarkLiveXYDistinctQuery(b *testing.B) {
 func BenchmarkLiveXYUniq(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Uniq(duplicateData)
+		_ = livexy.SliceUniq(duplicateData)
 	}
 }
 
@@ -943,7 +943,7 @@ func BenchmarkNativeContains(b *testing.B) {
 func BenchmarkLiveXYEvery(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Every(intData, intSubset)
+		_ = livexy.SliceEvery(intData, intSubset)
 	}
 }
 
@@ -990,7 +990,7 @@ func BenchmarkNativeEvery(b *testing.B) {
 func BenchmarkLiveXYSome(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Some(intData, intSubset)
+		_ = livexy.SliceSome(intData, intSubset)
 	}
 }
 
@@ -1119,7 +1119,7 @@ func BenchmarkLiveXYOptimizedSome(b *testing.B) {
 func BenchmarkLiveXYNone(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.None(intData, intSubset)
+		_ = livexy.SliceNone(intData, intSubset)
 	}
 }
 
@@ -1179,7 +1179,7 @@ func BenchmarkLiveXYConcat(b *testing.B) {
 func BenchmarkLiveXYConcatSlice(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Concat(intData, intDataOther)
+		_ = livexy.SliceConcat(intData, intDataOther)
 	}
 }
 
@@ -1306,7 +1306,7 @@ func BenchmarkLiveXYExceptSelect(b *testing.B) {
 func BenchmarkLiveXYDifference(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = livexy.Difference(intData, intDataOther)
+		_, _ = livexy.SliceDifference(intData, intDataOther)
 	}
 }
 
@@ -1362,7 +1362,7 @@ func BenchmarkLiveXYReverseSlice(b *testing.B) {
 	data := append([]int(nil), intData...)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Reverse(data)
+		_ = livexy.SliceReverse(data)
 	}
 }
 
@@ -1370,7 +1370,7 @@ func BenchmarkLiveXYReverseSlice(b *testing.B) {
 func BenchmarkLiveXYCloneReverse(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.CloneReverse(intData)
+		_ = livexy.SliceCloneReverse(intData)
 	}
 }
 
@@ -1438,7 +1438,7 @@ func BenchmarkLoCloneReverse(b *testing.B) {
 func BenchmarkLiveXYShuffle(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Shuffle(intData)
+		_ = livexy.SliceShuffle(intData)
 	}
 }
 
