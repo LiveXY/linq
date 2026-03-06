@@ -114,11 +114,11 @@ func BenchmarkFromMap(b *testing.B) {
 	}
 }
 
-// BenchmarkRange 基准测试：数值范围生成
-func BenchmarkRange(b *testing.B) {
+// BenchmarkQueryRange 基准测试：数值范围生成
+func BenchmarkQueryRange(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Range(0, 1000).ToSlice()
+		QueryRange(0, 1000).ToSlice()
 	}
 }
 
@@ -177,7 +177,7 @@ func BenchmarkSelectAsync(b *testing.B) {
 	q := From(data)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		SelectAsync(q, 4, func(i int) int { return i * 2 }).ToSlice()
+		SelectAsync(q, func(i int) int { return i * 2 }, 4).ToSlice()
 	}
 }
 
@@ -233,9 +233,9 @@ func BenchmarkSliceUtilities(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		Contains(From(data), 500)
 		IndexOf(From(data), 500)
-		Uniq(data)
-		Reverse(data)
-		Shuffle(data)
+		SliceUniq(data)
+		SliceReverse(data)
+		SliceShuffle(data)
 	}
 }
 
@@ -245,9 +245,9 @@ func BenchmarkCollectionOps(b *testing.B) {
 	data2 := makeRange(500, 1500)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Every(data1, data2[:10])
-		Some(data1, data2[:100])
-		Difference(data1, data2)
+		SliceEvery(data1, data2[:10])
+		SliceSome(data1, data2[:100])
+		SliceDifference(data1, data2)
 		SliceIntersect(data1, data2)
 	}
 }
@@ -257,8 +257,8 @@ func BenchmarkWithout(b *testing.B) {
 	data := makeRange(0, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Without(data, 1, 2, 3, 4, 5)
-		WithoutIndex(data, 0, 10, 100)
+		SliceWithout(data, 1, 2, 3, 4, 5)
+		SliceWithoutIndex(data, 0, 10, 100)
 	}
 }
 
@@ -269,7 +269,7 @@ func BenchmarkOtherOps(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		q.Page(2, 100).ToSlice()
-		Repeat(1, 1000).ToSlice()
+		QueryRepeat(1, 1000).ToSlice()
 		WhereSelect(q, func(i int) (int, bool) { return i, i%2 == 0 }).ToSlice()
 		q.Single()
 		q.Append(1001).ToSlice()
@@ -291,7 +291,7 @@ func BenchmarkTerminalLoop(b *testing.B) {
 		q.FirstDefault(0)
 		q.ForEach(func(i int) bool { return true })
 		q.ForEachIndexed(func(idx, val int) bool { return true })
-		q.ForEachParallel(2, func(i int) {})
+		q.ForEachParallel(func(i int) {}, 2)
 		q.IndexOfWith(func(i int) bool { return i == 50 })
 	}
 }
@@ -328,12 +328,12 @@ func BenchmarkUtilityFns(b *testing.B) {
 		Default(0, 1)
 		IsEmpty(0)
 		IsNotEmpty(1)
-		SliceTry(func() error { return nil })
+		TryDelay(func() error { return nil })
 		IF(true, 1, 2)
-		SliceEmpty[int]()
-		Rand(data, 10)
-		Equal(data, data...)
-		EqualBy(data, data, func(i int) int { return i })
+		Empty[int]()
+		SliceRand(data, 10)
+		SliceEqual(data, data...)
+		SliceEqualBy(data, data, func(i int) int { return i })
 	}
 }
 
@@ -365,8 +365,8 @@ func BenchmarkStaticAggregates(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Sum(From(data))
-		Min(data...)
-		Max(data...)
+		SliceMin(data...)
+		SliceMax(data...)
 	}
 }
 
@@ -404,8 +404,8 @@ func BenchmarkFilteringUtils(b *testing.B) {
 	strs := []string{"a", "", "b", "", "c"}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		WithoutEmpty(strs)
-		WithoutLEZero(data)
+		SliceWithoutEmpty(strs)
+		SliceWithoutLEZero(data)
 	}
 }
 
@@ -426,11 +426,11 @@ func BenchmarkStaticFunctions(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Map(data, func(i int) int { return i * 2 })
-		MapIndexed(data, func(i int, idx int) int { return i + idx })
-		Where(data, func(i int) bool { return i > 500 })
-		WhereIndexed(data, func(i int, idx int) bool { return idx%2 == 0 })
-		SelectAsyncCtx(ctx, q, 4, func(i int) int { return i })
+		SliceMap(data, func(i int) int { return i * 2 })
+		SliceMapIndexed(data, func(i int, idx int) int { return i + idx })
+		SliceWhere(data, func(i int) bool { return i > 500 })
+		SliceWhereIndexed(data, func(i int, idx int) bool { return idx%2 == 0 })
+		SelectAsyncCtx(ctx, q, func(i int) int { return i }, 4)
 	}
 }
 
@@ -450,10 +450,10 @@ func BenchmarkBigDataOps(b *testing.B) {
 	data2 := makeRange(2500, 3500)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		Every(data1, data2[:10])
-		Every(data1, data1[1000:2500]) // 触发 EveryBigData
-		Some(data1, data2[:100])
-		None(data1, data2[:10])
+		SliceEvery(data1, data2[:10])
+		SliceEvery(data1, data1[1000:2500]) // 触发 EveryBigData
+		SliceSome(data1, data2[:100])
+		SliceNone(data1, data2[:10])
 	}
 }
 
@@ -475,14 +475,14 @@ func BenchmarkTerminalOps(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		q.ForEachParallelCtx(ctx, 4, func(i int) {})
+		q.ForEachParallelCtx(ctx, func(i int) {}, 4)
 		q.Last()
 		q.LastDefault(0)
 
 		// 针对 Every/Some/None 的不同数据路径
 		small := []int{10}
-		Every(data, small)
-		Some(data, small)
+		SliceEvery(data, small)
+		SliceSome(data, small)
 	}
 }
 

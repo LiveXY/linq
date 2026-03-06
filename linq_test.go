@@ -232,16 +232,16 @@ func TestAppendTo(t *testing.T) {
 // TestForEachParallel 测试并发遍历 (ForEachParallel)
 func TestForEachParallel(t *testing.T) {
 	count := 100
-	nums := Range(0, count).ToSlice()
+	nums := QueryRange(0, count).ToSlice()
 	var mu sync.Mutex
 	processed := make(map[int]struct{})
 
-	From(nums).ForEachParallel(10, func(i int) {
+	From(nums).ForEachParallel(func(i int) {
 		mu.Lock()
 		processed[i] = struct{}{}
 		mu.Unlock()
 		time.Sleep(1 * time.Millisecond) // 模拟工作
-	})
+	}, 10)
 
 	if len(processed) != count {
 		t.Errorf("期望 %d 个处理项，实际得到 %d", count, len(processed))
@@ -251,13 +251,13 @@ func TestForEachParallel(t *testing.T) {
 // TestSelectAsync 测试异步选择 (SelectAsync)
 func TestSelectAsync(t *testing.T) {
 	count := 50
-	nums := Range(0, count)
+	nums := QueryRange(0, count)
 
 	// SelectAsync 顺序不保证，所以我们检查存在性
-	result := SelectAsync(nums, 5, func(i int) int {
+	result := SelectAsync(nums, func(i int) int {
 		time.Sleep(1 * time.Millisecond)
 		return i * 2
-	}).ToSlice()
+	}, 5).ToSlice()
 
 	if len(result) != count {
 		t.Fatalf("期望 %d 个元素，实际得到 %d", count, len(result))

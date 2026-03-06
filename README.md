@@ -14,22 +14,22 @@ go get github.com/livexy/linq
 
 ```
 ┌─────────────┐
-│  数据源       │  From / FromChannel / FromString / FromMap / Range / Repeat / Empty
+│  数据源      │  From / FromChannel / FromString / FromMap / Range / Repeat / Empty
 └──────┬──────┘
        ▼
 ┌─────────────┐
-│  Query[T]    │  惰性求值核心结构体
-│  ├ fastSlice │  切片快速路径（零迭代器开销）
-│  ├ fastWhere │  Where 条件融合（避免多层闭包）
-│  └ iterate   │  通用 iter.Seq[T] 迭代器
+│ Query[T]    │  惰性求值核心结构体
+│ ├ fastSlice │  切片快速路径（零迭代器开销）
+│ ├ fastWhere │  Where 条件融合（避免多层闭包）
+│ └ iterate   │  通用 iter.Seq[T] 迭代器
 └──────┬──────┘
        ▼
 ┌─────────────┐
-│  链式操作     │  Where / Select / OrderBy / GroupBy / Distinct / Union / ...
+│  链式操作    │  Where / Select / OrderBy / GroupBy / Distinct / Union / ...
 └──────┬──────┘
        ▼
 ┌─────────────┐
-│  终结操作     │  ToSlice / First / Count / Sum / ForEach / ToChannel / ...
+│  终结操作    │  ToSlice / First / Count / Sum / ForEach / ToChannel / ...
 └─────────────┘
 ```
 
@@ -102,9 +102,12 @@ go get github.com/livexy/linq
 |-----------|------|
 | `OrderBy(q, key)` | 升序排序 |
 | `OrderByDescending(q, key)` | 降序排序 |
+| `OrderByUnstable(q, key)` | 不稳定升序排序（更快，不保证同键稳定性） |
+| `OrderByDescendingUnstable(q, key)` | 不稳定降序排序（更快，不保证同键稳定性） |
 | `ThenBy(q, key)` | 次要升序排序 |
 | `ThenByDescending(q, key)` | 次要降序排序 |
-| `.Order(comparator)` | 自定义排序规则 |
+| `.Order(comparator)` | 自定义稳定排序规则 |
+| `.OrderUnstable(comparator)` | 自定义不稳定排序规则 |
 | `.Then(comparator)` | 追加排序规则 |
 | `Asc(selector)` | 生成升序比较器 |
 | `Desc(selector)` | 生成降序比较器 |
@@ -125,9 +128,12 @@ go get github.com/livexy/linq
 | `IndexOf(q, value)` / `LastIndexOf(q, value)` | 查找索引 |
 | `.IndexOfWith(predicate)` / `.LastIndexOfWith(predicate)` | 按条件查找索引 |
 | `.First()` / `.FirstWith(predicate)` | 第一个元素 |
+| `.FirstOK()` / `.FirstWithOK(predicate)` | 第一个元素（返回 `(value, ok)`） |
 | `.Last()` / `.LastWith(predicate)` | 最后一个元素 |
+| `.LastOK()` / `.LastWithOK(predicate)` | 最后一个元素（返回 `(value, ok)`） |
 | `.FirstDefault(defaultValue...)` / `.LastDefault(defaultValue...)` | 带默认值的元素访问 |
 | `.Single()` / `.SingleWith(predicate)` / `.SingleDefault(defaultValue...)` | 唯一元素 |
+| `.SingleOK()` / `.SingleWithOK(predicate)` | 唯一元素（返回 `(value, ok)`） |
 
 **强类型求和/平均代理**（方法链式调用）：
 
@@ -162,27 +168,27 @@ go get github.com/livexy/linq
 
 | 函数 | 说明 |
 |------|------|
-| `Map(list, selector)` / `MapIndexed(list, selector)` | 映射 |
-| `Where(list, predicate)` / `WhereIndexed(list, predicate)` | 过滤 |
-| `Uniq(list)` | 去重 |
+| `SliceMap(list, selector)` / `SliceMapIndexed(list, selector)` | 映射 |
+| `SliceWhere(list, predicate)` / `SliceWhereIndexed(list, predicate)` | 过滤 |
+| `SliceUniq(list)` | 去重 |
 | `SliceContains(list, element)` / `SliceContainsBy(list, pred)` | 包含判断 |
 | `SliceIndexOf(list, element)` / `SliceLastIndexOf(list, element)` | 索引查找 |
-| `Reverse(list)` / `CloneReverse(list)` | 反转（原地/克隆） |
-| `Min(list...)` / `Max(list...)` | 最值 |
+| `SliceReverse(list)` / `SliceCloneReverse(list)` | 反转（原地/克隆） |
+| `SliceMin(list...)` / `SliceMax(list...)` | 最值 |
 | `SliceMinBy(q, selector)` / `SliceMaxBy(q, selector)` | 按选择器取最值 |
 | `SliceSumBy(q, selector)` / `SliceAvgBy(q, selector)` | 按选择器求和/平均 |
 | `SliceSum(list)` | 切片求和 |
-| `Every(list, subset)` / `Some(list, subset)` / `None(list, subset)` | 集合关系判断 |
-| `SliceIntersect(a, b)` / `SliceUnion(lists...)` / `Difference(a, b)` | 集合运算 |
-| `Without(list, exclude...)` / `WithoutIndex(list, index...)` | 移除元素 |
-| `WithoutEmpty(list)` / `WithoutLEZero(list)` | 移除空值/非正值 |
-| `Equal(a, b...)` / `EqualBy(a, b, selector)` | 列表比较 |
-| `Rand(list, count)` / `Shuffle(list)` | 随机选取/打乱 |
-| `Default(v, d...)` / `IsEmpty(v)` / `IsNotEmpty(v)` / `SliceEmpty[T]()` | 零值相关 |
-| `IF(cond, suc, fail)` | 三目运算 |
-| `Concat(lists...)` | 合并多个切片 |
-| `SliceTry(callback, nums...)` / `TryCatch(callback, catch)` | 异常处理 |
+| `SliceEvery(list, subset)` / `SliceSome(list, subset)` / `SliceNone(list, subset)` | 集合关系判断 |
+| `SliceIntersect(a, b)` / `SliceUnion(lists...)` / `SliceDifference(a, b)` | 集合运算 |
+| `SliceWithout(list, exclude...)` / `SliceWithoutIndex(list, index...)` | 移除元素 |
+| `SliceWithoutEmpty(list)` / `SliceWithoutLEZero(list)` | 移除空值/非正值 |
+| `SliceEqual(a, b...)` / `SliceEqualBy(a, b, selector)` | 列表比较 |
+| `SliceRand(list, count)` / `SliceShuffle(list)` | 随机选取/打乱 |
+| `Default(v, d...)` / `IsEmpty(v)` / `IsNotEmpty(v)` / `Empty[T]()` | 零值相关 |
+| `SliceConcat(lists...)` | 合并多个切片 |
+| `TryDelay(callback, nums...)` / `TryCatch(callback, catch)` | 异常处理 |
 | `Try(f)` | 安全执行（返回值 + 错误） |
+| `IF(cond, suc, fail)` | 三目运算 |
 
 ## 使用示例
 
@@ -241,6 +247,12 @@ sorted := query.ToSlice()
 // 或使用 Order + Then 链式排序
 sorted2 := linq.From(members).
     Order(linq.Desc(func(m *Member) int8 { return m.Sex })).
+    Then(linq.Asc(func(m *Member) int { return m.Age })).
+    ToSlice()
+
+// 追求性能可使用不稳定排序（同键相对顺序不保证）
+sorted3 := linq.From(members).
+    OrderUnstable(linq.Desc(func(m *Member) int8 { return m.Sex })).
     Then(linq.Asc(func(m *Member) int { return m.Age })).
     ToSlice()
 ```

@@ -2,6 +2,8 @@ package linq
 
 import (
 	"context"
+	"math/rand/v2"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -57,6 +59,53 @@ func TestIterateBranches(t *testing.T) {
 	}
 }
 
+func TestOrderUnstableAPIs(t *testing.T) {
+	nums := []int{3, 1, 2, 1}
+	want := []int{1, 1, 2, 3}
+
+	got1 := From(nums).OrderUnstable(Asc(func(i int) int { return i })).ToSlice()
+	if !slices.Equal(got1, want) {
+		t.Fatalf("OrderUnstable 错误: got=%v want=%v", got1, want)
+	}
+
+	got2 := OrderByUnstable(From(nums), func(i int) int { return i }).ToSlice()
+	if !slices.Equal(got2, want) {
+		t.Fatalf("OrderByUnstable 错误: got=%v want=%v", got2, want)
+	}
+}
+
+func TestSortComparatorFlatten(t *testing.T) {
+	q := OrderBy(From([]int{3, 1, 2}), func(i int) int { return i })
+	q = ThenBy(q, func(i int) int { return -i })
+	q = ThenByDescending(q, func(i int) int { return i })
+	if len(q.sortCompares) != 3 {
+		t.Fatalf("Query 比较器链应为扁平列表，got=%d", len(q.sortCompares))
+	}
+	if !q.sortStable {
+		t.Fatalf("OrderBy 默认应为稳定排序")
+	}
+	qu := OrderByUnstable(From([]int{3, 1, 2}), func(i int) int { return i })
+	qu = ThenBy(qu, func(i int) int { return -i })
+	if qu.sortStable {
+		t.Fatalf("OrderByUnstable 链式排序应保持不稳定模式")
+	}
+
+	oq := From([]int{3, 1, 2}).Order(Asc(func(i int) int { return i })).
+		Then(Desc(func(i int) int { return i })).
+		Then(Asc(func(i int) int { return i }))
+	if len(oq.sortCompares) != 3 {
+		t.Fatalf("OrderedQuery 比较器链应为扁平列表，got=%d", len(oq.sortCompares))
+	}
+	if !oq.sortStable {
+		t.Fatalf("Order 默认应为稳定排序")
+	}
+	ou := From([]int{3, 1, 2}).OrderUnstable(Asc(func(i int) int { return i })).
+		Then(Desc(func(i int) int { return i }))
+	if ou.sortStable {
+		t.Fatalf("OrderUnstable 链式排序应保持不稳定模式")
+	}
+}
+
 // 测试 OrderedQuery 代理方法
 func TestOrderedQueryProxies(t *testing.T) {
 	q := From([]int{3, 1, 4, 1, 5, 9, 2, 6}).Order(Asc(func(i int) int { return i }))
@@ -103,22 +152,22 @@ func TestOrderedQueryProxies(t *testing.T) {
 func TestUtilsUncovered(t *testing.T) {
 	q := From([]int{1, 2, 3, 4, 5})
 
-	max := SliceMaxBy(q, func(i int) int { return i })
+	max := QueryMaxBy(q, func(i int) int { return i })
 	if max != 5 {
 		t.Errorf("SliceMaxBy 错误")
 	}
 
-	min := SliceMinBy(q, func(i int) int { return i })
+	min := QueryMinBy(q, func(i int) int { return i })
 	if min != 1 {
 		t.Errorf("SliceMinBy 错误")
 	}
 
-	sum := SliceSumBy(q, func(i int) int { return i })
+	sum := QuerySumBy(q, func(i int) int { return i })
 	if sum != 15 {
 		t.Errorf("SliceSumBy 错误")
 	}
 
-	avg := SliceAvgBy(q, func(i int) int { return i })
+	avg := QueryAvgBy(q, func(i int) int { return i })
 	if avg != 3.0 {
 		t.Errorf("SliceAvgBy 错误")
 	}
@@ -128,9 +177,9 @@ func TestUtilsUncovered(t *testing.T) {
 		t.Errorf("SliceSum 错误")
 	}
 
-	concat := Concat([]int{1, 2}, []int{3, 4})
+	concat := SliceConcat([]int{1, 2}, []int{3, 4})
 	if len(concat) != 4 || concat[0] != 1 || concat[3] != 4 {
-		t.Errorf("Concat 错误")
+		t.Errorf("SliceConcat 错误")
 	}
 
 	idx := SliceIndexOf([]int{1, 2, 3}, 2)
@@ -143,9 +192,9 @@ func TestUtilsUncovered(t *testing.T) {
 		t.Errorf("SliceLastIndexOf 错误")
 	}
 
-	rev := CloneReverse([]int{1, 2, 3})
+	rev := SliceCloneReverse([]int{1, 2, 3})
 	if len(rev) != 3 || rev[0] != 3 {
-		t.Errorf("CloneReverse 错误")
+		t.Errorf("SliceCloneReverse 错误")
 	}
 }
 
@@ -159,12 +208,12 @@ func TestConcurrentPanic(t *testing.T) {
 
 	// 故意在并发任务中触发 panic
 	q := From([]int{1, 2, 3, 4})
-	q.ForEachParallel(4, func(i int) {
+	q.ForEachParallel(func(i int) {
 		if i == 3 {
 			panic("故意触发用于测试的 panic")
 		}
 		time.Sleep(10 * time.Millisecond)
-	})
+	}, 4)
 }
 
 // 测试 OrderedQuery 的其他代理方法
@@ -207,10 +256,10 @@ func TestSelectAsyncCancel(t *testing.T) {
 	defer cancel()
 	q := From([]int{1, 2, 3, 4, 5})
 
-	asyncQ := SelectAsyncCtx(ctx, q, 2, func(i int) int {
+	asyncQ := SelectAsyncCtx(ctx, q, func(i int) int {
 		time.Sleep(50 * time.Millisecond)
 		return i * 2
-	})
+	}, 2)
 
 	count := 0
 	for val := range asyncQ.Seq() {
@@ -500,17 +549,17 @@ func TestQueryGenerators(t *testing.T) {
 		t.Errorf("FromString 非法字符错误")
 	}
 
-	zeroRange := Range(0, 0)
+	zeroRange := QueryRange(0, 0)
 	if zeroRange.Count() != 0 {
 		t.Errorf("Range 零值错误")
 	}
 
-	zeroRepeat := Repeat(1, 0)
+	zeroRepeat := QueryRepeat(1, 0)
 	if zeroRepeat.Count() != 0 {
 		t.Errorf("Repeat 零值错误")
 	}
 
-	rep := Repeat(5, 3)
+	rep := QueryRepeat(5, 3)
 	if rep.Count() != 3 || rep.First() != 5 {
 		t.Errorf("Repeat 错误")
 	}
@@ -519,33 +568,33 @@ func TestQueryGenerators(t *testing.T) {
 // 测试 Utils 中的边缘分支和空集
 func TestUtilsEdgeCases(t *testing.T) {
 	// SliceAvgBy 空流
-	if SliceAvgBy(createIterateQuery[int](), func(i int) int { return i }) != 0 {
+	if QueryAvgBy(createIterateQuery[int](), func(i int) int { return i }) != 0 {
 		t.Errorf("SliceAvgBy 零值错误")
 	}
 
 	// SliceMinBy / SliceMaxBy / Min / Max 空切片或空迭代器
-	if SliceMinBy(createIterateQuery[int](), func(i int) int { return i }) != 0 {
+	if QueryMinBy(createIterateQuery[int](), func(i int) int { return i }) != 0 {
 		t.Errorf("SliceMinBy 空流错误")
 	}
-	if SliceMaxBy(createIterateQuery[int](), func(i int) int { return i }) != 0 {
+	if QueryMaxBy(createIterateQuery[int](), func(i int) int { return i }) != 0 {
 		t.Errorf("SliceMaxBy 空流错误")
 	}
-	if Min[int]() != 0 {
-		t.Errorf("Min 空切片错误")
+	if SliceMin[int]() != 0 {
+		t.Errorf("SliceMin 空切片错误")
 	}
-	if Max[int]() != 0 {
-		t.Errorf("Max 空切片错误")
+	if SliceMax[int]() != 0 {
+		t.Errorf("SliceMax 空切片错误")
 	}
 
-	// EveryBigData
-	if !EveryBigData([]int{1, 2}, []int{}) {
-		t.Errorf("EveryBigData 空子集应返回 true")
+	// SliceEveryBigData
+	if !SliceEveryBigData([]int{1, 2}, []int{}) {
+		t.Errorf("SliceEveryBigData 空子集应返回 true")
 	}
-	if EveryBigData([]int{}, []int{1, 2}) {
-		t.Errorf("EveryBigData 空列表应返回 false")
+	if SliceEveryBigData([]int{}, []int{1, 2}) {
+		t.Errorf("SliceEveryBigData 空列表应返回 false")
 	}
-	if EveryBigData([]int{1, 2}, []int{1, 2, 3}) {
-		t.Errorf("EveryBigData 部分匹配应返回 false")
+	if SliceEveryBigData([]int{1, 2}, []int{1, 2, 3}) {
+		t.Errorf("SliceEveryBigData 部分匹配应返回 false")
 	}
 
 	// SliceIndexOf / SliceLastIndexOf 未找到
@@ -557,34 +606,34 @@ func TestUtilsEdgeCases(t *testing.T) {
 	}
 
 	// Without & WithoutIndex 边界
-	if len(Without([]int{1, 2, 3})) != 3 {
-		t.Errorf("Without 零值排队错误")
+	if len(SliceWithout([]int{1, 2, 3})) != 3 {
+		t.Errorf("SliceWithout 零值排队错误")
 	}
-	if len(Without([]int{}, 1, 2)) != 0 {
-		t.Errorf("Without 空列表错误")
+	if len(SliceWithout([]int{}, 1, 2)) != 0 {
+		t.Errorf("SliceWithout 空列表错误")
 	}
-	if len(WithoutIndex([]int{1, 2, 3})) != 3 {
-		t.Errorf("WithoutIndex 零值排队错误")
+	if len(SliceWithoutIndex([]int{1, 2, 3})) != 3 {
+		t.Errorf("SliceWithoutIndex 零值排队错误")
 	}
-	if len(WithoutIndex([]int{}, 1, 2)) != 0 {
-		t.Errorf("WithoutIndex 空列表错误")
+	if len(SliceWithoutIndex([]int{}, 1, 2)) != 0 {
+		t.Errorf("SliceWithoutIndex 空列表错误")
 	}
-	resIndex := WithoutIndex([]int{1, 2, 3}, 1, 5) // 5 越界
+	resIndex := SliceWithoutIndex([]int{1, 2, 3}, 1, 5) // 5 越界
 	if len(resIndex) != 2 || resIndex[1] != 3 {
-		t.Errorf("WithoutIndex 逻辑错误")
+		t.Errorf("SliceWithoutIndex 逻辑错误")
 	}
 
-	// EqualBy
-	if EqualBy([]int{1, 2}, []int{1, 2, 3}, func(i int) int { return i }) {
-		t.Errorf("EqualBy 长度不同错误")
+	// SliceEqualBy
+	if SliceEqualBy([]int{1, 2}, []int{1, 2, 3}, func(i int) int { return i }) {
+		t.Errorf("SliceEqualBy 长度不同错误")
 	}
 
 	// Rand
-	if len(Rand([]int{1, 2}, 5)) != 2 {
-		t.Errorf("Rand count 超过大小错误")
+	if len(SliceRand([]int{1, 2}, 5)) != 2 {
+		t.Errorf("SliceRand count 超过大小错误")
 	}
-	if len(Rand([]int{1, 2}, 0)) != 0 {
-		t.Errorf("Rand count 为零错误")
+	if len(SliceRand([]int{1, 2}, 0)) != 0 {
+		t.Errorf("SliceRand count 为零错误")
 	}
 
 	// Default
@@ -592,12 +641,12 @@ func TestUtilsEdgeCases(t *testing.T) {
 		t.Errorf("Default 隐式零值错误")
 	}
 
-	// SliceTry 不同参数个数
-	if !SliceTry(func() error { return nil }) {
-		t.Errorf("SliceTry 0 nums 错误")
+	// TryDelay 不同参数个数
+	if !TryDelay(func() error { return nil }) {
+		t.Errorf("TryDelay 0 nums 错误")
 	}
-	if !SliceTry(func() error { return nil }, 2) {
-		t.Errorf("SliceTry 1 nums 错误")
+	if !TryDelay(func() error { return nil }, 2) {
+		t.Errorf("TryDelay 1 nums 错误")
 	}
 }
 
@@ -728,19 +777,19 @@ func TestThenByWithoutOrder(t *testing.T) {
 	}
 }
 
-// 测试 SliceTry 失败及延迟重试的分支，这里补足 utils.go 中的 SliceTry 提前退出
-func TestSliceTryWithRetryWait(t *testing.T) {
+// 测试 TryDelay 失败及延迟重试的分支，这里补足 utils.go 中的 TryDelay 提前退出
+func TestTryDelayWithRetryWait(t *testing.T) {
 	retryCount := 0
-	ok := SliceTry(func() error {
+	ok := TryDelay(func() error {
 		retryCount++
 		return context.DeadlineExceeded // 模拟始终返回 error
 	}, 2, 0) // 设置 2 次，由于是同步测，休眠 0s 秒防卡
 
 	if ok {
-		t.Errorf("SliceTry 一直失败应该返回 false")
+		t.Errorf("TryDelay 一直失败应该返回 false")
 	}
 	if retryCount != 2 {
-		t.Errorf("SliceTry 失败重试次数不匹配")
+		t.Errorf("TryDelay 失败重试次数不匹配")
 	}
 }
 
@@ -1282,9 +1331,9 @@ func TestForEachParallelCtxCoverage(t *testing.T) {
 	defer cancel()
 
 	var sum int32
-	q.ForEachParallelCtx(ctx, 2, func(i int) {
+	q.ForEachParallelCtx(ctx, func(i int) {
 		atomic.AddInt32(&sum, int32(i))
-	})
+	}, 2)
 	if sum != 15 {
 		t.Errorf("ForEachParallelCtx 错误")
 	}
@@ -1292,9 +1341,9 @@ func TestForEachParallelCtxCoverage(t *testing.T) {
 	// 取消场景
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	cancel2()
-	q.ForEachParallelCtx(ctx2, 2, func(i int) {
+	q.ForEachParallelCtx(ctx2, func(i int) {
 		// 不应执行或尽快退出
-	})
+	}, 2)
 }
 
 // 测试各类 yield break 及中断分支
@@ -1390,19 +1439,19 @@ func TestPanicRecoveryBranches(t *testing.T) {
 
 	// fastPath panic
 	defer func() { recover() }() // 捕获最终抛出的 panic
-	qf.ForEachParallelCtx(context.Background(), 2, func(i int) {
+	qf.ForEachParallelCtx(context.Background(), func(i int) {
 		if i == 2 {
 			panic("panic fast")
 		}
-	})
+	}, 2)
 
 	// iteratePath panic
 	defer func() { recover() }()
-	qi.ForEachParallelCtx(context.Background(), 2, func(i int) {
+	qi.ForEachParallelCtx(context.Background(), func(i int) {
 		if i == 2 {
 			panic("panic iterate")
 		}
-	})
+	}, 2)
 }
 
 func TestAggregateIterateEmptyAndMulti(t *testing.T) {
@@ -1431,21 +1480,21 @@ func TestAsyncPanicAndEdgeCases(t *testing.T) {
 
 	// fastPath panic
 	defer func() { recover() }()
-	SelectAsyncCtx(context.Background(), qf, 2, func(i int) int {
+	SelectAsyncCtx(context.Background(), qf, func(i int) int {
 		if i == 2 {
 			panic("async panic fast")
 		}
 		return i
-	}).ToSlice()
+	}, 2).ToSlice()
 
 	// iteratePath panic
 	defer func() { recover() }()
-	SelectAsyncCtx(context.Background(), qi, 2, func(i int) int {
+	SelectAsyncCtx(context.Background(), qi, func(i int) int {
 		if i == 2 {
 			panic("async panic iterate")
 		}
 		return i
-	}).ToSlice()
+	}, 2).ToSlice()
 
 	// 2. SingleDefault 重复元素分支
 	From([]int{1, 1}).SingleDefault(99)
@@ -1473,14 +1522,14 @@ func TestAsyncPanicAndEdgeCases(t *testing.T) {
 	// CountWith fastPath continue
 	qfw.CountWith(func(i int) bool { return i == 2 })
 	// Any/AnyWith iteratePath end (empty query)
-	Empty[int]().Any()
-	Empty[int]().AnyWith(func(i int) bool { return true })
+	QueryEmpty[int]().Any()
+	QueryEmpty[int]().AnyWith(func(i int) bool { return true })
 	// First/Last/Single iteratePath end
-	Empty[int]().First()
-	Empty[int]().FirstWith(func(i int) bool { return true })
-	Empty[int]().Last()
-	Empty[int]().LastWith(func(i int) bool { return true })
-	Empty[int]().Single()
+	QueryEmpty[int]().First()
+	QueryEmpty[int]().FirstWith(func(i int) bool { return true })
+	QueryEmpty[int]().Last()
+	QueryEmpty[int]().LastWith(func(i int) bool { return true })
+	QueryEmpty[int]().Single()
 
 	// Select/WhereSelect etc yield break in fastPath
 	resSelect := Select(qfw, func(i int) int { return i })
@@ -1522,8 +1571,8 @@ func TestFilterYieldBreak(t *testing.T) {
 	// ForEachParallelCtx early exit
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	qf.ForEachParallelCtx(ctx, 2, func(i int) {})
-	qi.ForEachParallelCtx(ctx, 2, func(i int) {})
+	qf.ForEachParallelCtx(ctx, func(i int) {}, 2)
+	qi.ForEachParallelCtx(ctx, func(i int) {}, 2)
 
 	// ForEachParallelCtx panic in iterate
 	// (之前是在 goroutine 启动前 panic，现在尝试在 iterate 过程中感知 panicErr)
@@ -1541,27 +1590,27 @@ func TestIterateConcurrentBranches(t *testing.T) {
 	qi := createIterateQuery(1, 2, 3)
 	func() {
 		defer func() { recover() }()
-		qi.ForEachParallelCtx(context.Background(), 1, func(i int) {
+		qi.ForEachParallelCtx(context.Background(), func(i int) {
 			if i == 2 {
 				panic("iterate panic deep")
 			}
-		})
+		}, 1)
 	}()
 
 	// 2. SelectAsyncCtx 细节覆盖：
 	// - fastSlice + yield break
 	qf := From([]int{1, 2, 3})
-	SelectAsyncCtx(context.Background(), qf, 1, func(i int) int { return i }).ForEach(func(i int) bool { return false })
+	SelectAsyncCtx(context.Background(), qf, func(i int) int { return i }, 1).ForEach(func(i int) bool { return false })
 
 	// - iterate + yield break
-	SelectAsyncCtx(context.Background(), qi, 1, func(i int) int { return i }).ForEach(func(i int) bool { return false })
+	SelectAsyncCtx(context.Background(), qi, func(i int) int { return i }, 1).ForEach(func(i int) bool { return false })
 
 	// - iterate + panic (生产者协程中的异常处理)
 	func() {
 		defer func() { recover() }()
-		SelectAsyncCtx(context.Background(), qi, 1, func(i int) int {
+		SelectAsyncCtx(context.Background(), qi, func(i int) int {
 			panic("producer panic iterate")
-		}).ToSlice()
+		}, 1).ToSlice()
 	}()
 
 	// 3. ToChannel 物理覆盖 (特别是 case <-ctx.Done(): return)
@@ -1603,7 +1652,7 @@ func TestFastWhereFilterContinue(t *testing.T) {
 	whereQuery.ForEachIndexed(func(idx int, i int) bool { return true })
 
 	// ForEachParallelCtx fastSlice continue
-	whereQuery.ForEachParallelCtx(context.Background(), 1, func(i int) {})
+	whereQuery.ForEachParallelCtx(context.Background(), func(i int) {}, 1)
 
 	// MinBy / MaxBy fastSlice continue
 	_ = MinBy(whereQuery, func(i int) int { return i })
@@ -1762,7 +1811,7 @@ func TestMixedPathYieldBreak(t *testing.T) {
 
 	// 4. SelectAsyncCtx yield break and context cancellation details
 	ctxA, cancelA := context.WithCancel(context.Background())
-	chA := SelectAsyncCtx(ctxA, fastQuery, 1, func(i int) int { return i }).ToChannel(ctxA)
+	chA := SelectAsyncCtx(ctxA, fastQuery, func(i int) int { return i }, 1).ToChannel(ctxA)
 	cancelA()
 	for range chA {
 	}
@@ -1774,9 +1823,9 @@ func TestMixedPathYieldBreak(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 		cancelP()
 	}()
-	iterLong.ForEachParallelCtx(ctxP, 1, func(i int) {
+	iterLong.ForEachParallelCtx(ctxP, func(i int) {
 		time.Sleep(5 * time.Millisecond)
-	})
+	}, 1)
 
 	// 6. Append / Prepend yield break
 	fastQuery.Append(4).ForEach(func(i int) bool { return false })
@@ -1809,9 +1858,9 @@ func TestAsyncPanicRace(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		func() {
 			defer func() { recover() }()
-			SelectAsyncCtx(context.Background(), From([]int{1, 2, 3, 4, 5}), 1, func(n int) int {
+			SelectAsyncCtx(context.Background(), From([]int{1, 2, 3, 4, 5}), func(n int) int {
 				panic("multiple panic race")
-			}).ToSlice()
+			}, 1).ToSlice()
 		}()
 	}
 }
@@ -1848,7 +1897,7 @@ func TestIterateClosureYieldBreak(t *testing.T) {
 	// 4. GroupBy / GroupBySelect / SelectAsyncCtx iterate path yield break
 	GroupBy(fastQuery, func(i int) int { return i }).iterate(func(kv *KV[int, []int]) bool { return false })
 	GroupBySelect(fastQuery, func(i int) int { return i }, func(i int) int { return i }).iterate(func(kv *KV[int, []int]) bool { return false })
-	SelectAsyncCtx(context.Background(), fastQuery, 1, func(i int) int { return i }).iterate(func(i int) bool { return false })
+	SelectAsyncCtx(context.Background(), fastQuery, func(i int) int { return i }, 1).iterate(func(i int) bool { return false })
 
 	// 5. Special branches
 	// aggregate.go:303 (LastWith not found in iterate)
@@ -1890,7 +1939,7 @@ func TestFastWhereSetAndPanicLoop(t *testing.T) {
 	ExceptSelect(qfEmpty, qfEmpty, func(i int) int { return i }).ToSlice()
 
 	// SelectAsyncCtx fastWhere
-	SelectAsyncCtx(context.Background(), qfEmpty, 1, func(i int) int { return i }).ToSlice()
+	SelectAsyncCtx(context.Background(), qfEmpty, func(i int) int { return i }, 1).ToSlice()
 
 	// --- 3. 触发 iterate 路径下的 yield break ---
 	falseYield := func(i any) bool { return false }
@@ -1931,11 +1980,11 @@ func TestFastWhereSetAndPanicLoop(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		func() {
 			defer func() { recover() }()
-			SelectAsyncCtx(context.Background(), From([]int{1, 2}), 2, func(n int) int { panic("!") }).ToSlice()
+			SelectAsyncCtx(context.Background(), From([]int{1, 2}), func(n int) int { panic("!") }, 2).ToSlice()
 		}()
 		func() {
 			defer func() { recover() }()
-			From([]int{1, 2}).ForEachParallelCtx(context.Background(), 2, func(n int) { panic("!") })
+			From([]int{1, 2}).ForEachParallelCtx(context.Background(), func(n int) { panic("!") }, 2)
 		}()
 	}
 }
@@ -2034,14 +2083,14 @@ func TestAllBranchesComprehensive(t *testing.T) {
 	// ForEachParallelCtx 取消上下文分支
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	qi.ForEachParallelCtx(ctx, 1, func(i int) {})
-	qfw.ForEachParallelCtx(ctx, 1, func(i int) {})
+	qi.ForEachParallelCtx(ctx, func(i int) {}, 1)
+	qfw.ForEachParallelCtx(ctx, func(i int) {}, 1)
 
 	// --- 6. utils.go 分支补全 ---
-	SliceMinBy(qi, func(i int) int { return i })
-	SliceMaxBy(qi, func(i int) int { return i })
-	SliceAvgBy(qi, func(i int) int { return i })
-	SliceSumBy(qi, func(i int) int { return i })
+	QueryMinBy(qi, func(i int) int { return i })
+	QueryMaxBy(qi, func(i int) int { return i })
+	QueryAvgBy(qi, func(i int) int { return i })
+	QuerySumBy(qi, func(i int) int { return i })
 }
 
 // 集合操作深度覆盖测试
@@ -2087,11 +2136,596 @@ func TestAggregateSingleDefaultPureIterate(t *testing.T) {
 	qi.LastIndexOfWith(func(i int) bool { return i == 1 })
 }
 
-// 测试 SliceMinBy/SliceSumBy/SliceAvgBy 的 iterate 路径
+// 测试 QueryMinBy / QuerySumBy / QueryAvgBy 的分支覆盖
 func TestUtilsSliceByIterate(t *testing.T) {
 	qi := createIterateQuery(3, 1, 2)
-	// SliceMinBy / SliceSumBy / SliceAvgBy 的分支覆盖
-	SliceMinBy(qi, func(i int) int { return i })
-	SliceSumBy(qi, func(i int) int { return i })
-	SliceAvgBy(qi, func(i int) int { return i })
+	QueryMinBy(qi, func(i int) int { return i })
+	QuerySumBy(qi, func(i int) int { return i })
+	QueryAvgBy(qi, func(i int) int { return i })
+}
+
+func TestCoverageGapSeqAndReverse(t *testing.T) {
+	var plain []int
+	for v := range From([]int{10, 11}).Seq() {
+		plain = append(plain, v)
+	}
+	if !slices.Equal(plain, []int{10, 11}) {
+		t.Fatalf("Seq fastSlice 无谓词分支错误: got=%v", plain)
+	}
+
+	qFast := From([]int{1, 2, 3, 4}).Where(func(v int) bool { return v%2 == 0 })
+	var first []int
+	for v := range qFast.Seq() {
+		first = append(first, v)
+		break
+	}
+	if !slices.Equal(first, []int{2}) {
+		t.Fatalf("Seq fastWhere 分支错误: got=%v", first)
+	}
+
+	qIter := Query[int]{
+		iterate:  slices.Values([]int{7, 8}),
+		capacity: 2,
+	}
+	gotIter := make([]int, 0, 2)
+	for v := range qIter.Seq() {
+		gotIter = append(gotIter, v)
+	}
+	if !slices.Equal(gotIter, []int{7, 8}) {
+		t.Fatalf("Seq iterate 分支错误: got=%v", gotIter)
+	}
+
+	if got := From([]int{1, 2, 3}).Reverse().ToSlice(); !slices.Equal(got, []int{3, 2, 1}) {
+		t.Fatalf("Reverse fastSlice 错误: got=%v", got)
+	}
+
+	if got := From([]int{1, 2, 3, 4}).Where(func(v int) bool { return v%2 == 0 }).Reverse().ToSlice(); !slices.Equal(got, []int{4, 2}) {
+		t.Fatalf("Reverse fastWhere 错误: got=%v", got)
+	}
+
+	qOnlyIter := Query[int]{
+		iterate:  slices.Values([]int{9, 8, 7}),
+		capacity: 3,
+	}
+	if got := qOnlyIter.Reverse().ToSlice(); !slices.Equal(got, []int{7, 8, 9}) {
+		t.Fatalf("Reverse iterate materialize 错误: got=%v", got)
+	}
+	var revIter []int
+	qOnlyIter.Reverse().ForEach(func(v int) bool {
+		revIter = append(revIter, v)
+		return true
+	})
+	if !slices.Equal(revIter, []int{7, 8, 9}) {
+		t.Fatalf("Reverse iterate 迭代分支错误: got=%v", revIter)
+	}
+
+	count := 0
+	From([]int{1, 2, 3}).Reverse().ForEach(func(v int) bool {
+		count++
+		return count < 2
+	})
+	if count != 2 {
+		t.Fatalf("Reverse iterate 提前停止分支未命中: count=%d", count)
+	}
+}
+
+func TestCoverageGapSortBranches(t *testing.T) {
+	desc := OrderByDescendingUnstable(From([]int{2, 1, 3}), func(v int) int { return v }).ToSlice()
+	if !slices.Equal(desc, []int{3, 2, 1}) {
+		t.Fatalf("OrderByDescendingUnstable 错误: got=%v", desc)
+	}
+
+	if composeComparators[int](nil) != nil {
+		t.Fatalf("composeComparators 空输入应返回 nil")
+	}
+
+	cmpInt := func(a, b int) int {
+		if a < b {
+			return -1
+		}
+		if a > b {
+			return 1
+		}
+		return 0
+	}
+	cmpParity := func(a, b int) int {
+		ap, bp := a%2, b%2
+		if ap < bp {
+			return -1
+		}
+		if ap > bp {
+			return 1
+		}
+		return 0
+	}
+
+	c2 := composeComparators([]CompareFunc[int]{func(a, b int) int { return 0 }, cmpInt})
+	if c2(1, 2) != -1 || c2(2, 1) != 1 {
+		t.Fatalf("composeComparators 两比较器分支错误")
+	}
+
+	c3 := composeComparators([]CompareFunc[int]{cmpParity, cmpInt, func(a, b int) int { return 0 }})
+	if c3(2, 1) != -1 || c3(2, 4) != -1 || c3(2, 2) != 0 {
+		t.Fatalf("composeComparators 三比较器分支错误")
+	}
+
+	c4 := composeComparators([]CompareFunc[int]{func(a, b int) int { return 0 }, func(a, b int) int { return 0 }, func(a, b int) int { return 0 }, cmpInt})
+	if c4(4, 5) != -1 {
+		t.Fatalf("composeComparators 多比较器分支错误")
+	}
+	if c4(5, 5) != 0 {
+		t.Fatalf("composeComparators 多比较器返回0分支错误")
+	}
+
+	oqFromCompare := OrderedQuery[int]{
+		Query: Query[int]{
+			compare:  cmpInt,
+			iterate:  slices.Values([]int{3, 1, 2}),
+			capacity: 3,
+		},
+	}
+	oqFromCompare = oqFromCompare.Then(func(a, b int) int { return 0 })
+	if len(oqFromCompare.sortCompares) != 2 {
+		t.Fatalf("Then compare 分支错误: len=%d", len(oqFromCompare.sortCompares))
+	}
+
+	oqNoCmp := OrderedQuery[int]{
+		Query:      From([]int{3, 1, 2}),
+		sortStable: false,
+	}
+	oqNoCmp = oqNoCmp.Then(cmpInt)
+	if !oqNoCmp.sortStable {
+		t.Fatalf("Then 无比较器时应回退 stable=true")
+	}
+
+	qWithCompare := Query[int]{
+		compare:  cmpInt,
+		iterate:  slices.Values([]int{3, 1, 2}),
+		capacity: 3,
+	}
+	if got := ThenBy(qWithCompare, func(v int) int { return -v }).ToSlice(); !slices.Equal(got, []int{1, 2, 3}) {
+		t.Fatalf("ThenBy compare fallback 分支错误: got=%v", got)
+	}
+
+	if got := OrderBy(From([]int{9}), func(v int) int { return v }).ToSlice(); !slices.Equal(got, []int{9}) {
+		t.Fatalf("单元素排序分支错误: got=%v", got)
+	}
+}
+
+func TestCoverageGapProjectionBranches(t *testing.T) {
+	filtered := From([]int{1, 2, 3, 4, 5}).Where(func(v int) bool { return v%2 == 1 })
+	selected := Select(filtered, func(v int) int { return v * 10 })
+	var iterValues []int
+	selected.ForEach(func(v int) bool {
+		iterValues = append(iterValues, v)
+		return true
+	})
+	if !slices.Equal(iterValues, []int{10, 30, 50}) {
+		t.Fatalf("Select iterate fastWhere 分支错误: got=%v", iterValues)
+	}
+
+	qNegCap := Query[int]{
+		iterate:  slices.Values([]int{1, 2, 3}),
+		capacity: -3,
+	}
+	if got := Select(qNegCap, func(v int) int { return v + 1 }).ToSlice(); !slices.Equal(got, []int{2, 3, 4}) {
+		t.Fatalf("Select capHint<0 分支错误: got=%v", got)
+	}
+
+	ws := WhereSelect(filtered, func(v int) (int, bool) {
+		return v * 10, v > 1 && v < 5
+	})
+	var wsFirst []int
+	for v := range ws.Seq() {
+		wsFirst = append(wsFirst, v)
+		break
+	}
+	if !slices.Equal(wsFirst, []int{30}) {
+		t.Fatalf("WhereSelect iterate fastWhere 分支错误: got=%v", wsFirst)
+	}
+	if got := ws.ToSlice(); !slices.Equal(got, []int{30}) {
+		t.Fatalf("WhereSelect materialize fastWhere 分支错误: got=%v", got)
+	}
+
+	q2 := From([]int{3, 4, 5, 6}).Where(func(v int) bool { return v >= 4 })
+	if got := UnionSelect(filtered, q2, func(v int) int { return v % 3 }).ToSlice(); !slices.Equal(got, []int{1, 0, 2}) {
+		t.Fatalf("UnionSelect fastWhere 分支错误: got=%v", got)
+	}
+	if got := IntersectSelect(filtered, q2, func(v int) int { return v % 3 }).ToSlice(); !slices.Equal(got, []int{1, 0, 2}) {
+		t.Fatalf("IntersectSelect fastWhere 分支错误: got=%v", got)
+	}
+	if got := ExceptSelect(filtered, q2, func(v int) int { return v % 3 }).ToSlice(); len(got) != 0 {
+		t.Fatalf("ExceptSelect fastWhere 分支错误: got=%v", got)
+	}
+
+	var interFirst []int
+	for v := range IntersectSelect(filtered, q2, func(v int) int { return v % 3 }).Seq() {
+		interFirst = append(interFirst, v)
+		break
+	}
+	if !slices.Equal(interFirst, []int{1}) {
+		t.Fatalf("IntersectSelect iterate 提前停止分支错误: got=%v", interFirst)
+	}
+
+	var exceptFirst []int
+	for v := range ExceptSelect(filtered, From([]int{6}).Where(func(v int) bool { return v > 0 }), func(v int) int { return v % 3 }).Seq() {
+		exceptFirst = append(exceptFirst, v)
+		break
+	}
+	if !slices.Equal(exceptFirst, []int{1}) {
+		t.Fatalf("ExceptSelect iterate 提前停止分支错误: got=%v", exceptFirst)
+	}
+}
+
+func TestCoverageGapSetConcatAndSliceIntersect(t *testing.T) {
+	q1 := From([]int{1, 2, 2, 3, 4}).Where(func(v int) bool { return v >= 2 })
+	q2 := From([]int{2, 3, 5, 2}).Where(func(v int) bool { return v != 5 })
+
+	var interFirst []int
+	for v := range Intersect(q1, q2).Seq() {
+		interFirst = append(interFirst, v)
+		break
+	}
+	if !slices.Equal(interFirst, []int{2}) {
+		t.Fatalf("Intersect iterate fastWhere 分支错误: got=%v", interFirst)
+	}
+	if got := Intersect(q1, q2).ToSlice(); !slices.Equal(got, []int{2, 3}) {
+		t.Fatalf("Intersect materialize fastWhere 分支错误: got=%v", got)
+	}
+
+	var exceptFirst []int
+	for v := range Except(q1, q2).Seq() {
+		exceptFirst = append(exceptFirst, v)
+		break
+	}
+	if !slices.Equal(exceptFirst, []int{4}) {
+		t.Fatalf("Except iterate fastWhere 分支错误: got=%v", exceptFirst)
+	}
+	if got := Except(q1, q2).ToSlice(); !slices.Equal(got, []int{4}) {
+		t.Fatalf("Except materialize fastWhere 分支错误: got=%v", got)
+	}
+
+	key := func(v int) int { return v % 2 }
+	if got := IntersectBy(q1, q2, key).ToSlice(); !slices.Equal(got, []int{2, 3}) {
+		t.Fatalf("IntersectBy 分支错误: got=%v", got)
+	}
+	if got := ExceptBy(q1, From([]int{11, 13, 14}).Where(func(v int) bool { return v != 14 }), key).ToSlice(); !slices.Equal(got, []int{2}) {
+		t.Fatalf("ExceptBy 分支错误: got=%v", got)
+	}
+
+	var concatGot []int
+	From([]int{1, 2, 3}).Where(func(v int) bool { return v != 2 }).
+		Concat(From([]int{4, 5, 6}).Where(func(v int) bool { return v != 5 })).
+		ForEach(func(v int) bool {
+			concatGot = append(concatGot, v)
+			return true
+		})
+	if !slices.Equal(concatGot, []int{1, 3, 4, 6}) {
+		t.Fatalf("Concat iterate fastWhere 分支错误: got=%v", concatGot)
+	}
+
+	if got := SliceIntersect([]int{}, []int{1, 2}); len(got) != 0 {
+		t.Fatalf("SliceIntersect 空输入分支错误: got=%v", got)
+	}
+	if got := SliceIntersect([]int{1, 2, 3, 3}, []int{3, 4, 3}); !slices.Equal(got, []int{3}) {
+		t.Fatalf("SliceIntersect capHint 分支错误: got=%v", got)
+	}
+}
+
+func TestCoverageGapIterateContinueReturns(t *testing.T) {
+	a := From([]int{1, 2, 3, 4}).Where(func(v int) bool { return v%2 == 0 })
+	b := From([]int{3, 4, 5, 6}).Where(func(v int) bool { return v <= 5 })
+
+	var ws []int
+	WhereSelect(a, func(v int) (int, bool) { return v * 10, true }).ForEach(func(v int) bool {
+		ws = append(ws, v)
+		return true
+	})
+	if !slices.Equal(ws, []int{20, 40}) {
+		t.Fatalf("WhereSelect iterate return 分支错误: got=%v", ws)
+	}
+
+	var ds []int
+	DistinctSelect(a, func(v int) int { return v }).ForEach(func(v int) bool {
+		ds = append(ds, v)
+		return true
+	})
+	if !slices.Equal(ds, []int{2, 4}) {
+		t.Fatalf("DistinctSelect iterate continue 分支错误: got=%v", ds)
+	}
+
+	var us []int
+	UnionSelect(a, b, func(v int) int { return v }).ForEach(func(v int) bool {
+		us = append(us, v)
+		return true
+	})
+	if !slices.Equal(us, []int{2, 4, 3, 5}) {
+		t.Fatalf("UnionSelect iterate continue 分支错误: got=%v", us)
+	}
+
+	var is []int
+	IntersectSelect(a, b, func(v int) int { return v }).ForEach(func(v int) bool {
+		is = append(is, v)
+		return true
+	})
+	if !slices.Equal(is, []int{4}) {
+		t.Fatalf("IntersectSelect iterate continue/return 分支错误: got=%v", is)
+	}
+
+	var es []int
+	ExceptSelect(a, b, func(v int) int { return v }).ForEach(func(v int) bool {
+		es = append(es, v)
+		return true
+	})
+	if !slices.Equal(es, []int{2}) {
+		t.Fatalf("ExceptSelect iterate continue/return 分支错误: got=%v", es)
+	}
+
+	var d0 []int
+	Distinct(a).ForEach(func(v int) bool {
+		d0 = append(d0, v)
+		return true
+	})
+	if !slices.Equal(d0, []int{2, 4}) {
+		t.Fatalf("Distinct iterate continue 分支错误: got=%v", d0)
+	}
+
+	var d1 []int
+	DistinctBy(a, func(v int) int { return v }).ForEach(func(v int) bool {
+		d1 = append(d1, v)
+		return true
+	})
+	if !slices.Equal(d1, []int{2, 4}) {
+		t.Fatalf("DistinctBy iterate continue 分支错误: got=%v", d1)
+	}
+
+	var ib []int
+	IntersectBy(a, b, func(v int) int { return v }).ForEach(func(v int) bool {
+		ib = append(ib, v)
+		return true
+	})
+	if !slices.Equal(ib, []int{4}) {
+		t.Fatalf("IntersectBy iterate continue/return 分支错误: got=%v", ib)
+	}
+
+	var uq []int
+	Union(a, b).ForEach(func(v int) bool {
+		uq = append(uq, v)
+		return true
+	})
+	if !slices.Equal(uq, []int{2, 4, 3, 5}) {
+		t.Fatalf("Union iterate continue 分支错误: got=%v", uq)
+	}
+
+	var ub []int
+	UnionBy(a, b, func(v int) int { return v }).ForEach(func(v int) bool {
+		ub = append(ub, v)
+		return true
+	})
+	if !slices.Equal(ub, []int{2, 4, 3, 5}) {
+		t.Fatalf("UnionBy iterate continue 分支错误: got=%v", ub)
+	}
+
+	var eb []int
+	ExceptBy(a, b, func(v int) int { return v }).ForEach(func(v int) bool {
+		eb = append(eb, v)
+		return false
+	})
+	if !slices.Equal(eb, []int{2}) {
+		t.Fatalf("ExceptBy iterate continue/early-return 分支错误: got=%v", eb)
+	}
+}
+
+func intSet(list []int) map[int]struct{} {
+	set := make(map[int]struct{}, len(list))
+	for _, v := range list {
+		set[v] = struct{}{}
+	}
+	return set
+}
+
+func setEqual(a, b []int) bool {
+	sa := intSet(a)
+	sb := intSet(b)
+	if len(sa) != len(sb) {
+		return false
+	}
+	for v := range sa {
+		if _, ok := sb[v]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func setSubset(sub, sup []int) bool {
+	supSet := intSet(sup)
+	for v := range intSet(sub) {
+		if _, ok := supSet[v]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func setDisjoint(a, b []int) bool {
+	sb := intSet(b)
+	for v := range intSet(a) {
+		if _, ok := sb[v]; ok {
+			return false
+		}
+	}
+	return true
+}
+
+func TestElementOKAPIs(t *testing.T) {
+	if v, ok := From([]int{0, 1}).FirstOK(); !ok || v != 0 {
+		t.Fatalf("FirstOK 失败, got=(%d,%v)", v, ok)
+	}
+	if _, ok := QueryEmpty[int]().FirstOK(); ok {
+		t.Fatalf("FirstOK 空序列应为 false")
+	}
+	if _, ok := QueryEmpty[int]().LastOK(); ok {
+		t.Fatalf("LastOK 空序列应为 false")
+	}
+	if v, ok := From([]int{1, 2, 3}).LastWithOK(func(i int) bool { return i < 3 }); !ok || v != 2 {
+		t.Fatalf("LastWithOK 失败, got=(%d,%v)", v, ok)
+	}
+	if _, ok := From([]int{1, 2, 3}).FirstWithOK(func(i int) bool { return i > 9 }); ok {
+		t.Fatalf("FirstWithOK 未命中应为 false")
+	}
+	if v, ok := From([]int{7}).SingleOK(); !ok || v != 7 {
+		t.Fatalf("SingleOK 单元素应命中, got=(%d,%v)", v, ok)
+	}
+	if _, ok := From([]int{7, 8}).SingleOK(); ok {
+		t.Fatalf("SingleOK 多元素应为 false")
+	}
+	if _, ok := QueryEmpty[int]().SingleOK(); ok {
+		t.Fatalf("SingleOK 空序列应为 false")
+	}
+	if v, ok := From([]int{1, 2, 3}).SingleWithOK(func(i int) bool { return i == 2 }); !ok || v != 2 {
+		t.Fatalf("SingleWithOK 失败, got=(%d,%v)", v, ok)
+	}
+}
+
+func TestSetProperties(t *testing.T) {
+	rng := rand.New(rand.NewPCG(20260306, 7))
+	for i := 0; i < 200; i++ {
+		na := rng.IntN(40)
+		nb := rng.IntN(40)
+		a := make([]int, na)
+		b := make([]int, nb)
+		for j := 0; j < na; j++ {
+			a[j] = rng.IntN(21) - 10
+		}
+		for j := 0; j < nb; j++ {
+			b[j] = rng.IntN(21) - 10
+		}
+
+		qa := From(a)
+		qb := From(b)
+
+		da := Distinct(qa).ToSlice()
+		db := Distinct(qb).ToSlice()
+		unionAB := Union(qa, qb).ToSlice()
+		interAB := Intersect(qa, qb).ToSlice()
+		exceptAB := Except(qa, qb).ToSlice()
+
+		if !setEqual(Union(qa, qa).ToSlice(), da) {
+			t.Fatalf("Union 幂等性失败, a=%v", a)
+		}
+		if !setEqual(Intersect(qa, qa).ToSlice(), da) {
+			t.Fatalf("Intersect 幂等性失败, a=%v", a)
+		}
+		if len(Except(qa, qa).ToSlice()) != 0 {
+			t.Fatalf("Except 自反失败, a=%v", a)
+		}
+		if !setSubset(interAB, da) || !setSubset(interAB, db) {
+			t.Fatalf("Intersect 子集性质失败, a=%v b=%v", a, b)
+		}
+		if !setDisjoint(exceptAB, db) {
+			t.Fatalf("Except 与 B 不相交性质失败, a=%v b=%v", a, b)
+		}
+		if !setEqual(qa.Union(qb).ToSlice(), unionAB) {
+			t.Fatalf("Query.Union 与函数 Union 不一致, a=%v b=%v", a, b)
+		}
+	}
+}
+
+func FuzzWhereSelectEquivalent(f *testing.F) {
+	f.Add([]byte{1, 2, 3, 4})
+	f.Add([]byte{0, 0, 0})
+	f.Add([]byte{255, 1, 128, 64})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		nums := make([]int, len(data))
+		for i := range data {
+			nums[i] = int(int8(data[i]))
+		}
+		q := From(nums)
+
+		gotA := Select(
+			q.Where(func(v int) bool { return v%2 == 0 }),
+			func(v int) int { return v*3 + 1 },
+		).ToSlice()
+
+		gotB := WhereSelect(q, func(v int) (int, bool) {
+			if v%2 == 0 {
+				return v*3 + 1, true
+			}
+			return 0, false
+		}).ToSlice()
+
+		if !slices.Equal(gotA, gotB) {
+			t.Fatalf("Where+Select 与 WhereSelect 不一致: %v vs %v", gotA, gotB)
+		}
+	})
+}
+
+func TestSliceSomeBranches(t *testing.T) {
+	buildRange := func(start, count int) []int {
+		out := make([]int, count)
+		for i := 0; i < count; i++ {
+			out[i] = start + i
+		}
+		return out
+	}
+
+	// 空输入
+	if SliceSome([]int{}, []int{1}) {
+		t.Fatalf("empty list should be false")
+	}
+	if SliceSome([]int{1}, []int{}) {
+		t.Fatalf("empty subset should be false")
+	}
+
+	// 小数据路径: n < m
+	if !SliceSome([]int{1, 2}, []int{7, 2, 9}) {
+		t.Fatalf("small n<m hit should be true")
+	}
+	if SliceSome([]int{1, 2}, []int{7, 8, 9}) {
+		t.Fatalf("small n<m miss should be false")
+	}
+
+	// 小数据路径: n >= m
+	if !SliceSome([]int{1, 2, 3}, []int{8, 3}) {
+		t.Fatalf("small n>=m hit should be true")
+	}
+	if SliceSome([]int{1, 2, 3}, []int{8, 9}) {
+		t.Fatalf("small n>=m miss should be false")
+	}
+
+	// 大数据路径: n < m（回退建表 list）
+	bigListShort := buildRange(0, 130)
+	bigSubsetLongHit := append(buildRange(300, 199), 77) // m=200, 含命中
+	if !SliceSome(bigListShort, bigSubsetLongHit) {
+		t.Fatalf("big n<m map-hit should be true")
+	}
+	bigSubsetLongMiss := buildRange(300, 200)
+	if SliceSome(bigListShort, bigSubsetLongMiss) {
+		t.Fatalf("big n<m map-miss should be false")
+	}
+
+	// 大数据路径: n >= m（先投机扫描，再回退建表 subset）
+	bigListLong := buildRange(0, 200)
+	bigSubsetShortSpecHit := buildRange(10, 130) // 在前 50 内命中
+	if !SliceSome(bigListLong, bigSubsetShortSpecHit) {
+		t.Fatalf("big n>=m speculative-hit should be true")
+	}
+	bigSubsetShortTailHit := buildRange(180, 130) // 前50不命中，尾部命中
+	if !SliceSome(bigListLong, bigSubsetShortTailHit) {
+		t.Fatalf("big n>=m tail-hit should be true")
+	}
+	bigSubsetShortMiss := buildRange(300, 130)
+	if SliceSome(bigListLong, bigSubsetShortMiss) {
+		t.Fatalf("big n>=m miss should be false")
+	}
+
+	// SliceNone 包装分支
+	if !SliceNone(bigListLong, bigSubsetShortMiss) {
+		t.Fatalf("SliceNone miss should be true")
+	}
+	if SliceNone(bigListLong, bigSubsetShortTailHit) {
+		t.Fatalf("SliceNone hit should be false")
+	}
 }

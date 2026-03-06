@@ -1,114 +1,13 @@
 package linq
 
 import (
+	"cmp"
 	"context"
-	"iter"
 	"maps"
 	"slices"
+	"sync"
 	"unicode/utf8"
 )
-
-type Signed interface {
-	~int | ~int8 | ~int16 | ~int32 | ~int64
-}
-
-type Unsigned interface {
-	~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr
-}
-
-type Integer interface {
-	Signed | Unsigned
-}
-
-type Float interface {
-	~float32 | ~float64
-}
-
-type Complex interface {
-	~complex64 | ~complex128
-}
-
-// KV 键值对结构体
-type KV[K comparable, V any] struct {
-	Key   K
-	Value V
-}
-
-// CompareFunc 比较函数类型
-type CompareFunc[T comparable] func(a, b T) int
-
-// Query 查询结构体，是 LINQ 操作的核心类型
-type Query[T comparable] struct {
-	compare    CompareFunc[T]
-	iterate    iter.Seq[T]
-	fastSlice  []T
-	fastWhere  func(T) bool
-	capacity   int
-	sortSource *Query[T]
-}
-
-// Seq 返回供 for-range 从头到尾遍历的迭代器
-func (q Query[T]) Seq() iter.Seq[T] {
-	return q.iterate
-}
-
-// ToSlice 将查询结果收集为切片
-func (q Query[T]) ToSlice() []T {
-	if q.fastSlice != nil {
-		source := q.fastSlice
-		predicate := q.fastWhere
-		if predicate == nil {
-			return slices.Clone(source)
-		}
-		result := make([]T, 0, q.capacity/2+1) // 估算
-		for _, v := range source {
-			if predicate(v) {
-				result = append(result, v)
-			}
-		}
-		return result
-	}
-	var result []T
-	if q.capacity > 0 {
-		result = make([]T, 0, q.capacity/2+1)
-	}
-	for item := range q.iterate {
-		result = append(result, item)
-	}
-	return result
-}
-
-// ToChannel 将查询结果收集为通道，支持上下文取消
-func (q Query[T]) ToChannel(ctx context.Context) <-chan T {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	ch := make(chan T)
-	go func() {
-		defer close(ch)
-		if q.fastSlice != nil {
-			for _, item := range q.fastSlice {
-				if q.fastWhere != nil && !q.fastWhere(item) {
-					continue
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case ch <- item:
-				}
-			}
-			return
-		}
-		for item := range q.iterate {
-			select {
-			case <-ctx.Done():
-				return
-			case ch <- item:
-			}
-		}
-	}()
-	return ch
-}
 
 // From 从切片创建 Query 查询对象
 func From[T comparable](source []T) Query[T] {
@@ -170,15 +69,15 @@ func FromMap[K, V comparable](source map[K]V) Query[KV[K, V]] {
 	}
 }
 
-// Empty 创建一个空的 Query 查询对象
-func Empty[T comparable]() Query[T] {
+// QueryEmpty 创建一个空的 Query 查询对象
+func QueryEmpty[T comparable]() Query[T] {
 	return From([]T{})
 }
 
-// Range 创建一个包含指定范围内整数序列的 Query 查询对象
-func Range(start, count int) Query[int] {
+// QueryRange 创建一个包含指定范围内整数序列的 Query 查询对象
+func QueryRange(start, count int) Query[int] {
 	if count <= 0 {
-		return Empty[int]()
+		return QueryEmpty[int]()
 	}
 	return Query[int]{
 		iterate: func(yield func(int) bool) {
@@ -193,10 +92,10 @@ func Range(start, count int) Query[int] {
 	}
 }
 
-// Repeat 创建一个包含重复元素的 Query 查询对象
-func Repeat[T comparable](element T, count int) Query[T] {
+// QueryRepeat 创建一个包含重复元素的 Query 查询对象
+func QueryRepeat[T comparable](element T, count int) Query[T] {
 	if count <= 0 {
-		return Empty[T]()
+		return QueryEmpty[T]()
 	}
 	return Query[T]{
 		iterate: func(yield func(T) bool) {
@@ -210,160 +109,1164 @@ func Repeat[T comparable](element T, count int) Query[T] {
 	}
 }
 
-// Reverse 返回反转后的序列的查询对象
-func (q Query[T]) Reverse() Query[T] {
-	return Query[T]{
+// QueryMinBy 根据选择器返回的值计算最小值
+func QueryMinBy[T comparable, V Integer | Float](q Query[T], selector func(T) V) (r V) {
+	first := true
+	for item := range q.iterate {
+		n := selector(item)
+		if first {
+			r = n
+			first = false
+		} else if n < r {
+			r = n
+		}
+	}
+	return
+}
+
+// QueryMaxBy 根据选择器返回的值计算最大值
+func QueryMaxBy[T comparable, V Integer | Float](q Query[T], selector func(T) V) (r V) {
+	first := true
+	for item := range q.iterate {
+		n := selector(item)
+		if first {
+			r = n
+			first = false
+		} else if n > r {
+			r = n
+		}
+	}
+	return
+}
+
+// QuerySumBy 根据选择器返回的值计算总和
+func QuerySumBy[T comparable, V Integer | Float | Complex](q Query[T], selector func(T) V) (r V) {
+	for item := range q.iterate {
+		r += selector(item)
+	}
+	return
+}
+
+// QueryAvgBy 计算平均值，兼容所有类型
+func QueryAvgBy[T comparable, V Integer | Float](q Query[T], selector func(T) V) float64 {
+	var sum float64
+	var n int
+	for item := range q.iterate {
+		sum += float64(selector(item))
+		n++
+	}
+	if n == 0 {
+		return 0
+	}
+	return sum / float64(n)
+}
+
+// MinBy 根据选择器返回最小值
+func MinBy[T comparable, R cmp.Ordered](q Query[T], selector func(T) R) T {
+	if q.fastSlice != nil {
+		var min T
+		var minR R
+		first := true
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			val := selector(v)
+			if first || cmp.Compare(val, minR) < 0 {
+				min = v
+				minR = val
+				first = false
+			}
+		}
+		return min
+	}
+	var min T
+	var minR R
+	first := true
+	for item := range q.iterate {
+		val := selector(item)
+		if first || cmp.Compare(val, minR) < 0 {
+			min = item
+			minR = val
+			first = false
+		}
+	}
+	return min
+}
+
+// MaxBy 根据选择器返回最大值
+func MaxBy[T comparable, R cmp.Ordered](q Query[T], selector func(T) R) T {
+	if q.fastSlice != nil {
+		var max T
+		var maxR R
+		first := true
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			val := selector(v)
+			if first || cmp.Compare(val, maxR) > 0 {
+				max = v
+				maxR = val
+				first = false
+			}
+		}
+		return max
+	}
+	var max T
+	var maxR R
+	first := true
+	for item := range q.iterate {
+		val := selector(item)
+		if first || cmp.Compare(val, maxR) > 0 {
+			max = item
+			maxR = val
+			first = false
+		}
+	}
+	return max
+}
+
+// Sum 计算数值序列的和
+func Sum[T Integer | Float | Complex](q Query[T]) T {
+	if q.fastSlice != nil {
+		var sum T
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			sum += v
+		}
+		return sum
+	}
+	var sum T
+	for item := range q.iterate {
+		sum += item
+	}
+	return sum
+}
+
+// SumBy 根据选择器获取成员和
+func SumBy[T comparable, R Integer | Float | Complex](q Query[T], selector func(T) R) R {
+	if q.fastSlice != nil {
+		var sum R
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			sum += selector(v)
+		}
+		return sum
+	}
+	var sum R
+	for item := range q.iterate {
+		sum += selector(item)
+	}
+	return sum
+}
+
+// Average 计算数值序列的平均值（float64）
+func Average[T Integer | Float](q Query[T]) float64 {
+	if q.fastSlice != nil {
+		var sum float64
+		count := 0
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			sum += float64(v)
+			count++
+		}
+		if count == 0 {
+			return 0
+		}
+		return sum / float64(count)
+	}
+	var sum float64
+	count := 0
+	for item := range q.iterate {
+		sum += float64(item)
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	return sum / float64(count)
+}
+
+// AverageBy 根据选择器计算平均值
+func AverageBy[T comparable, R Integer | Float](q Query[T], selector func(T) R) float64 {
+	if q.fastSlice != nil {
+		var sum float64
+		count := 0
+		for _, v := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(v) {
+				continue
+			}
+			sum += float64(selector(v))
+			count++
+		}
+		if count == 0 {
+			return 0
+		}
+		return sum / float64(count)
+	}
+	var sum float64
+	count := 0
+	for item := range q.iterate {
+		sum += float64(selector(item))
+		count++
+	}
+	if count == 0 {
+		return 0
+	}
+	return sum / float64(count)
+}
+
+// AvgBy 顶级函数别名
+func AvgBy[T comparable, R Integer | Float](q Query[T], selector func(T) R) float64 {
+	return AverageBy(q, selector)
+}
+
+// Contains 判断序列中是否包含指定的元素
+func Contains[T comparable](q Query[T], value T) bool {
+	return q.AnyWith(func(t T) bool { return t == value })
+}
+
+// IndexOf 返回元素的索引
+func IndexOf[T comparable](q Query[T], value T) int {
+	index := 0
+	if q.fastSlice != nil {
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
+			}
+			if item == value {
+				return index
+			}
+			index++
+		}
+	} else {
+		for item := range q.iterate {
+			if item == value {
+				return index
+			}
+			index++
+		}
+	}
+	return -1
+}
+
+// LastIndexOf 返回元素最后出现的索引
+func LastIndexOf[T comparable](q Query[T], value T) int {
+	index := 0
+	last := -1
+	if q.fastSlice != nil {
+		for _, item := range q.fastSlice {
+			if q.fastWhere != nil && !q.fastWhere(item) {
+				continue
+			}
+			if item == value {
+				last = index
+			}
+			index++
+		}
+	} else {
+		for item := range q.iterate {
+			if item == value {
+				last = index
+			}
+			index++
+		}
+	}
+	return last
+}
+
+// Distinct 过滤掉重复的元素
+func Distinct[T comparable](q Query[T]) Query[T] {
+	capHint := q.capacity/2 + 1
+	result := Query[T]{
 		iterate: func(yield func(T) bool) {
-			var items []T
-			if q.fastSlice != nil && q.fastWhere == nil {
-				items = q.fastSlice
-			} else {
-				for item := range q.iterate {
+			seen := make(map[T]struct{}, capHint)
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					if _, ok := seen[item]; !ok {
+						seen[item] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+				return
+			}
+			for item := range q.iterate {
+				if _, ok := seen[item]; !ok {
+					seen[item] = struct{}{}
+					if !yield(item) {
+						return
+					}
+				}
+			}
+		},
+		capacity: q.capacity,
+	}
+	if q.fastSlice != nil && q.fastWhere == nil {
+		return result
+	}
+	result.materialize = func() []T {
+		items := make([]T, 0, capHint)
+		seen := make(map[T]struct{}, capHint)
+		if q.fastSlice != nil {
+			for _, item := range q.fastSlice {
+				if q.fastWhere != nil && !q.fastWhere(item) {
+					continue
+				}
+				if _, ok := seen[item]; !ok {
+					seen[item] = struct{}{}
 					items = append(items, item)
 				}
 			}
-			for i := len(items) - 1; i >= 0; i-- {
-				if !yield(items[i]) {
+			return items
+		}
+		for item := range q.iterate {
+			if _, ok := seen[item]; !ok {
+				seen[item] = struct{}{}
+				items = append(items, item)
+			}
+		}
+		return items
+	}
+	return result
+}
+
+// DistinctBy 根据键选择器过滤重复元素
+func DistinctBy[T, K comparable](q Query[T], selector func(T) K) Query[T] {
+	capHint := q.capacity/2 + 1
+	result := Query[T]{
+		iterate: func(yield func(T) bool) {
+			seen := make(map[K]struct{}, capHint)
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					key := selector(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+				return
+			}
+			for item := range q.iterate {
+				key := selector(item)
+				if _, ok := seen[key]; !ok {
+					seen[key] = struct{}{}
+					if !yield(item) {
+						return
+					}
+				}
+			}
+		},
+		capacity: q.capacity,
+	}
+	if q.fastSlice != nil && q.fastWhere == nil {
+		return result
+	}
+	result.materialize = func() []T {
+		items := make([]T, 0, capHint)
+		seen := make(map[K]struct{}, capHint)
+		if q.fastSlice != nil {
+			for _, item := range q.fastSlice {
+				if q.fastWhere != nil && !q.fastWhere(item) {
+					continue
+				}
+				key := selector(item)
+				if _, ok := seen[key]; !ok {
+					seen[key] = struct{}{}
+					items = append(items, item)
+				}
+			}
+			return items
+		}
+		for item := range q.iterate {
+			key := selector(item)
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				items = append(items, item)
+			}
+		}
+		return items
+	}
+	return result
+}
+
+// Intersect 获取两个序列的交集
+func Intersect[T comparable](q1, q2 Query[T]) Query[T] {
+	capHint := q1.capacity
+	if capHint <= 0 || (q2.capacity > 0 && q2.capacity < capHint) {
+		capHint = q2.capacity
+	}
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			// 0: 不存在 1: 存在于 q2 2: 已输出
+			seen := make(map[T]uint8, q2.capacity)
+			if q2.fastSlice != nil {
+				if q2.fastWhere == nil {
+					for _, item := range q2.fastSlice {
+						seen[item] = 1
+					}
+				} else {
+					where := q2.fastWhere
+					for _, item := range q2.fastSlice {
+						if !where(item) {
+							continue
+						}
+						seen[item] = 1
+					}
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[item] = 1
+				}
+			}
+			if q1.fastSlice != nil {
+				if q1.fastWhere == nil {
+					for _, item := range q1.fastSlice {
+						if seen[item] == 1 {
+							seen[item] = 2
+							if !yield(item) {
+								return
+							}
+						}
+					}
+				} else {
+					where := q1.fastWhere
+					for _, item := range q1.fastSlice {
+						if !where(item) {
+							continue
+						}
+						if seen[item] == 1 {
+							seen[item] = 2
+							if !yield(item) {
+								return
+							}
+						}
+					}
+				}
+				return
+			}
+			for item := range q1.iterate {
+				if seen[item] == 1 {
+					seen[item] = 2
+					if !yield(item) {
+						return
+					}
+				}
+			}
+		},
+		capacity: capHint,
+		materialize: func() []T {
+			result := make([]T, 0, capHint)
+			seen := make(map[T]uint8, q2.capacity)
+			if q2.fastSlice != nil {
+				if q2.fastWhere == nil {
+					for _, item := range q2.fastSlice {
+						seen[item] = 1
+					}
+				} else {
+					where := q2.fastWhere
+					for _, item := range q2.fastSlice {
+						if !where(item) {
+							continue
+						}
+						seen[item] = 1
+					}
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[item] = 1
+				}
+			}
+			if q1.fastSlice != nil {
+				if q1.fastWhere == nil {
+					for _, item := range q1.fastSlice {
+						if seen[item] == 1 {
+							seen[item] = 2
+							result = append(result, item)
+						}
+					}
+				} else {
+					where := q1.fastWhere
+					for _, item := range q1.fastSlice {
+						if !where(item) {
+							continue
+						}
+						if seen[item] == 1 {
+							seen[item] = 2
+							result = append(result, item)
+						}
+					}
+				}
+				return result
+			}
+			for item := range q1.iterate {
+				if seen[item] == 1 {
+					seen[item] = 2
+					result = append(result, item)
+				}
+			}
+			return result
+		},
+	}
+}
+
+// IntersectBy 根据键选择器获取两个序列的交集
+func IntersectBy[T, K comparable](q1, q2 Query[T], selector func(T) K) Query[T] {
+	capHint := q1.capacity
+	if capHint <= 0 || (q2.capacity > 0 && q2.capacity < capHint) {
+		capHint = q2.capacity
+	}
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			// 0: 不存在 1: 存在于 q2 2: 已输出
+			seen := make(map[K]uint8, q2.capacity)
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					seen[selector(item)] = 1
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[selector(item)] = 1
+				}
+			}
+			if q1.fastSlice != nil {
+				for _, item := range q1.fastSlice {
+					if q1.fastWhere != nil && !q1.fastWhere(item) {
+						continue
+					}
+					key := selector(item)
+					if seen[key] == 1 {
+						seen[key] = 2
+						if !yield(item) {
+							return
+						}
+					}
+				}
+				return
+			}
+			for item := range q1.iterate {
+				key := selector(item)
+				if seen[key] == 1 {
+					seen[key] = 2
+					if !yield(item) {
+						return
+					}
+				}
+			}
+		},
+		capacity: capHint,
+		materialize: func() []T {
+			result := make([]T, 0, capHint)
+			seen := make(map[K]uint8, q2.capacity)
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					seen[selector(item)] = 1
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[selector(item)] = 1
+				}
+			}
+			if q1.fastSlice != nil {
+				for _, item := range q1.fastSlice {
+					if q1.fastWhere != nil && !q1.fastWhere(item) {
+						continue
+					}
+					key := selector(item)
+					if seen[key] == 1 {
+						seen[key] = 2
+						result = append(result, item)
+					}
+				}
+				return result
+			}
+			for item := range q1.iterate {
+				key := selector(item)
+				if seen[key] == 1 {
+					seen[key] = 2
+					result = append(result, item)
+				}
+			}
+			return result
+		},
+	}
+}
+
+// Union 获取两个序列的并集
+func Union[T comparable](q1, q2 Query[T]) Query[T] {
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			seen := make(map[T]struct{}, q1.capacity+q2.capacity)
+			if q1.fastSlice != nil {
+				for _, item := range q1.fastSlice {
+					if q1.fastWhere != nil && !q1.fastWhere(item) {
+						continue
+					}
+					if _, ok := seen[item]; !ok {
+						seen[item] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+			} else {
+				for item := range q1.iterate {
+					if _, ok := seen[item]; !ok {
+						seen[item] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+			}
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					if _, ok := seen[item]; !ok {
+						seen[item] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+				return
+			}
+			for item := range q2.iterate {
+				if _, ok := seen[item]; !ok {
+					seen[item] = struct{}{}
+					if !yield(item) {
+						return
+					}
+				}
+			}
+		},
+		capacity: q1.capacity + q2.capacity,
+		materialize: func() []T {
+			result := make([]T, 0, q1.capacity+q2.capacity)
+			seen := make(map[T]struct{}, q1.capacity+q2.capacity)
+			if q1.fastSlice != nil {
+				for _, item := range q1.fastSlice {
+					if q1.fastWhere != nil && !q1.fastWhere(item) {
+						continue
+					}
+					if _, ok := seen[item]; !ok {
+						seen[item] = struct{}{}
+						result = append(result, item)
+					}
+				}
+			} else {
+				for item := range q1.iterate {
+					if _, ok := seen[item]; !ok {
+						seen[item] = struct{}{}
+						result = append(result, item)
+					}
+				}
+			}
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					if _, ok := seen[item]; !ok {
+						seen[item] = struct{}{}
+						result = append(result, item)
+					}
+				}
+				return result
+			}
+			for item := range q2.iterate {
+				if _, ok := seen[item]; !ok {
+					seen[item] = struct{}{}
+					result = append(result, item)
+				}
+			}
+			return result
+		},
+	}
+}
+
+// UnionBy 根据键选择器获取两个序列的并集
+func UnionBy[T, K comparable](q1, q2 Query[T], selector func(T) K) Query[T] {
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			seen := make(map[K]struct{}, q1.capacity+q2.capacity)
+			if q1.fastSlice != nil {
+				for _, item := range q1.fastSlice {
+					if q1.fastWhere != nil && !q1.fastWhere(item) {
+						continue
+					}
+					key := selector(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+			} else {
+				for item := range q1.iterate {
+					key := selector(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+			}
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					key := selector(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+			} else {
+				for item := range q2.iterate {
+					key := selector(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						if !yield(item) {
+							return
+						}
+					}
+				}
+			}
+		},
+		capacity: q1.capacity + q2.capacity,
+		materialize: func() []T {
+			result := make([]T, 0, q1.capacity+q2.capacity)
+			seen := make(map[K]struct{}, q1.capacity+q2.capacity)
+			if q1.fastSlice != nil {
+				for _, item := range q1.fastSlice {
+					if q1.fastWhere != nil && !q1.fastWhere(item) {
+						continue
+					}
+					key := selector(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						result = append(result, item)
+					}
+				}
+			} else {
+				for item := range q1.iterate {
+					key := selector(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						result = append(result, item)
+					}
+				}
+			}
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					key := selector(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						result = append(result, item)
+					}
+				}
+			} else {
+				for item := range q2.iterate {
+					key := selector(item)
+					if _, ok := seen[key]; !ok {
+						seen[key] = struct{}{}
+						result = append(result, item)
+					}
+				}
+			}
+			return result
+		},
+	}
+}
+
+// Except 获取两个序列的差集 (q1 中有而 q2 中没有)
+func Except[T comparable](q1, q2 Query[T]) Query[T] {
+	capHint := q2.capacity + q1.capacity/2 + 1
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			// 0: 不存在 1: 存在于 q2 2: 已从 q1 输出
+			seen := make(map[T]uint8, capHint)
+			if q2.fastSlice != nil {
+				if q2.fastWhere == nil {
+					for _, item := range q2.fastSlice {
+						seen[item] = 1
+					}
+				} else {
+					where := q2.fastWhere
+					for _, item := range q2.fastSlice {
+						if !where(item) {
+							continue
+						}
+						seen[item] = 1
+					}
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[item] = 1
+				}
+			}
+			if q1.fastSlice != nil {
+				if q1.fastWhere == nil {
+					for _, item := range q1.fastSlice {
+						if seen[item] == 0 {
+							seen[item] = 2
+							if !yield(item) {
+								return
+							}
+						}
+					}
+				} else {
+					where := q1.fastWhere
+					for _, item := range q1.fastSlice {
+						if !where(item) {
+							continue
+						}
+						if seen[item] == 0 {
+							seen[item] = 2
+							if !yield(item) {
+								return
+							}
+						}
+					}
+				}
+				return
+			}
+			for item := range q1.iterate {
+				if seen[item] == 0 {
+					seen[item] = 2
+					if !yield(item) {
+						return
+					}
+				}
+			}
+		},
+		capacity: q1.capacity,
+		materialize: func() []T {
+			result := make([]T, 0, q1.capacity)
+			seen := make(map[T]uint8, capHint)
+			if q2.fastSlice != nil {
+				if q2.fastWhere == nil {
+					for _, item := range q2.fastSlice {
+						seen[item] = 1
+					}
+				} else {
+					where := q2.fastWhere
+					for _, item := range q2.fastSlice {
+						if !where(item) {
+							continue
+						}
+						seen[item] = 1
+					}
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[item] = 1
+				}
+			}
+			if q1.fastSlice != nil {
+				if q1.fastWhere == nil {
+					for _, item := range q1.fastSlice {
+						if seen[item] == 0 {
+							seen[item] = 2
+							result = append(result, item)
+						}
+					}
+				} else {
+					where := q1.fastWhere
+					for _, item := range q1.fastSlice {
+						if !where(item) {
+							continue
+						}
+						if seen[item] == 0 {
+							seen[item] = 2
+							result = append(result, item)
+						}
+					}
+				}
+				return result
+			}
+			for item := range q1.iterate {
+				if seen[item] == 0 {
+					seen[item] = 2
+					result = append(result, item)
+				}
+			}
+			return result
+		},
+	}
+}
+
+// ExceptBy 根据键选择器获取两个序列的差集
+func ExceptBy[T, K comparable](q1, q2 Query[T], selector func(T) K) Query[T] {
+	capHint := q2.capacity + q1.capacity/2 + 1
+	return Query[T]{
+		iterate: func(yield func(T) bool) {
+			// 0: 不存在 1: 存在于 q2 2: 已从 q1 输出
+			seen := make(map[K]uint8, capHint)
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					seen[selector(item)] = 1
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[selector(item)] = 1
+				}
+			}
+			if q1.fastSlice != nil {
+				for _, item := range q1.fastSlice {
+					if q1.fastWhere != nil && !q1.fastWhere(item) {
+						continue
+					}
+					key := selector(item)
+					if seen[key] == 0 {
+						seen[key] = 2
+						if !yield(item) {
+							return
+						}
+					}
+				}
+				return
+			}
+			for item := range q1.iterate {
+				key := selector(item)
+				if seen[key] == 0 {
+					seen[key] = 2
+					if !yield(item) {
+						return
+					}
+				}
+			}
+		},
+		capacity: q1.capacity,
+		materialize: func() []T {
+			result := make([]T, 0, q1.capacity)
+			seen := make(map[K]uint8, capHint)
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					seen[selector(item)] = 1
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[selector(item)] = 1
+				}
+			}
+			if q1.fastSlice != nil {
+				for _, item := range q1.fastSlice {
+					if q1.fastWhere != nil && !q1.fastWhere(item) {
+						continue
+					}
+					key := selector(item)
+					if seen[key] == 0 {
+						seen[key] = 2
+						result = append(result, item)
+					}
+				}
+				return result
+			}
+			for item := range q1.iterate {
+				key := selector(item)
+				if seen[key] == 0 {
+					seen[key] = 2
+					result = append(result, item)
+				}
+			}
+			return result
+		},
+	}
+}
+
+// Select 将序列中的每个元素投影到新表单
+func Select[T, V comparable](q Query[T], selector func(T) V) Query[V] {
+	result := Query[V]{
+		iterate: func(yield func(V) bool) {
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					if !yield(selector(item)) {
+						return
+					}
+				}
+				return
+			}
+			for item := range q.iterate {
+				if !yield(selector(item)) {
 					return
 				}
 			}
 		},
 		capacity: q.capacity,
 	}
-}
-
-// Distinct 代理
-func (q Query[T]) Distinct() Query[T] {
-	if q.fastSlice != nil {
-		return Query[T]{
-			iterate: func(yield func(T) bool) {
-				seen := make(map[T]struct{})
-				for _, item := range q.fastSlice {
-					if q.fastWhere != nil && !q.fastWhere(item) {
-						continue
-					}
-					if _, ok := seen[item]; !ok {
-						seen[item] = struct{}{}
-						if !yield(item) {
-							return
-						}
-					}
-				}
-			},
-			capacity: q.capacity,
+	result.materialize = func() []V {
+		capHint := q.capacity
+		if q.fastWhere != nil {
+			capHint = q.capacity/2 + 1
 		}
-	}
-	return Query[T]{
-		iterate: func(yield func(T) bool) {
-			seen := make(map[T]struct{})
-			for item := range q.iterate {
-				if _, ok := seen[item]; !ok {
-					seen[item] = struct{}{}
-					if !yield(item) {
-						return
-					}
+		if capHint < 0 {
+			capHint = 0
+		}
+		if q.fastSlice != nil && q.fastWhere == nil {
+			return SliceMap(q.fastSlice, selector)
+		}
+		out := make([]V, 0, capHint)
+		if q.fastSlice != nil {
+			for _, item := range q.fastSlice {
+				if q.fastWhere != nil && !q.fastWhere(item) {
+					continue
 				}
+				out = append(out, selector(item))
 			}
-		},
+			return out
+		}
+		for item := range q.iterate {
+			out = append(out, selector(item))
+		}
+		return out
 	}
+	return result
 }
 
-// Intersect 代理
-func (q Query[T]) Intersect(q2 Query[T]) Query[T] {
-	if q.fastSlice != nil && q2.fastSlice != nil {
-		return Query[T]{
-			iterate: func(yield func(T) bool) {
-				seen := make(map[T]struct{})
-				for _, item := range q2.fastSlice {
-					if q2.fastWhere != nil && !q2.fastWhere(item) {
-						continue
-					}
-					seen[item] = struct{}{}
-				}
-				emitted := make(map[T]struct{})
-				for _, item := range q.fastSlice {
-					if q.fastWhere != nil && !q.fastWhere(item) {
-						continue
-					}
-					if _, ok := seen[item]; ok {
-						if _, already := emitted[item]; !already {
-							emitted[item] = struct{}{}
-							if !yield(item) {
+// SelectAsyncCtx 并发转换元素并返回一个无序序列，若包含 panic 则终止。
+func SelectAsyncCtx[T, V comparable](ctx context.Context, q Query[T], selector func(T) V, workers ...int) Query[V] {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	iworkers := 1
+	if len(workers) > 0 && workers[0] > 0 {
+		iworkers = workers[0]
+	}
+	return Query[V]{
+		iterate: func(yield func(V) bool) {
+			workerCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			jobs := make(chan T, iworkers)
+			outCh := make(chan V, iworkers)
+			errCh := make(chan any, 1) // 捕获并发 worker 的 panic
+
+			var wg sync.WaitGroup
+			for i := 0; i < iworkers; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					defer func() {
+						if r := recover(); r != nil {
+							select {
+							case errCh <- r:
+							default:
+							}
+							cancel()
+						}
+					}()
+					for {
+						select {
+						case <-workerCtx.Done():
+							return
+						case item, ok := <-jobs:
+							if !ok {
 								return
+							}
+							val := selector(item)
+							select {
+							case <-workerCtx.Done():
+								return
+							case outCh <- val:
 							}
 						}
 					}
-				}
-			},
-		}
-	}
-	return Query[T]{
-		iterate: func(yield func(T) bool) {
-			seen := make(map[T]struct{})
-			for item := range q2.iterate {
-				seen[item] = struct{}{}
+				}()
 			}
-			emitted := make(map[T]struct{})
-			for item := range q.iterate {
-				if _, ok := seen[item]; ok {
-					if _, already := emitted[item]; !already {
-						emitted[item] = struct{}{}
-						if !yield(item) {
-							return
-						}
-					}
-				}
-			}
-		},
-	}
-}
 
-// Union 代理
-func (q Query[T]) Union(q2 Query[T]) Query[T] {
-	if q.fastSlice != nil && q2.fastSlice != nil {
-		return Query[T]{
-			iterate: func(yield func(T) bool) {
-				seen := make(map[T]struct{})
-				for _, item := range q.fastSlice {
-					if q.fastWhere != nil && !q.fastWhere(item) {
-						continue
-					}
-					if _, ok := seen[item]; !ok {
-						seen[item] = struct{}{}
-						if !yield(item) {
+			// 生产者
+			go func() {
+				defer close(jobs)
+				if q.fastSlice != nil {
+					for _, item := range q.fastSlice {
+						if q.fastWhere != nil && !q.fastWhere(item) {
+							continue
+						}
+						select {
+						case <-workerCtx.Done():
 							return
+						case jobs <- item:
 						}
 					}
+					return
 				}
-				for _, item := range q2.fastSlice {
-					if q2.fastWhere != nil && !q2.fastWhere(item) {
-						continue
-					}
-					if _, ok := seen[item]; !ok {
-						seen[item] = struct{}{}
-						if !yield(item) {
-							return
-						}
+				for item := range q.iterate {
+					select {
+					case <-workerCtx.Done():
+						return
+					case jobs <- item:
 					}
 				}
-			},
-		}
-	}
-	return Query[T]{
-		iterate: func(yield func(T) bool) {
-			seen := make(map[T]struct{})
-			for item := range q.iterate {
-				if _, ok := seen[item]; !ok {
-					seen[item] = struct{}{}
-					if !yield(item) {
+			}()
+
+			// 关闭输出
+			go func() {
+				wg.Wait()
+				close(outCh)
+			}()
+
+			panicIfAny := func() {
+				select {
+				case panicErr := <-errCh:
+					panic(panicErr)
+				default:
+				}
+			}
+
+			for {
+				select {
+				case <-workerCtx.Done():
+					panicIfAny()
+					return
+				case val, ok := <-outCh:
+					if !ok {
+						panicIfAny()
 						return
 					}
-				}
-			}
-			for item := range q2.iterate {
-				if _, ok := seen[item]; !ok {
-					seen[item] = struct{}{}
-					if !yield(item) {
+					if !yield(val) {
+						cancel()
 						return
 					}
 				}
@@ -372,92 +1275,516 @@ func (q Query[T]) Union(q2 Query[T]) Query[T] {
 	}
 }
 
-// Except 代理
-func (q Query[T]) Except(q2 Query[T]) Query[T] {
-	if q.fastSlice != nil && q2.fastSlice != nil {
-		return Query[T]{
-			iterate: func(yield func(T) bool) {
-				seen := make(map[T]struct{})
-				for _, item := range q2.fastSlice {
-					if q2.fastWhere != nil && !q2.fastWhere(item) {
-						continue
-					}
-					seen[item] = struct{}{}
-				}
-				emitted := make(map[T]struct{})
+// GroupBy 根据键选择器将元素分组
+func GroupBy[T, K comparable](q Query[T], keySelector func(T) K) Query[*KV[K, []T]] {
+	return Query[*KV[K, []T]]{
+		iterate: func(yield func(*KV[K, []T]) bool) {
+			groups := make(map[K][]T, q.capacity)
+			if q.fastSlice != nil {
 				for _, item := range q.fastSlice {
 					if q.fastWhere != nil && !q.fastWhere(item) {
 						continue
 					}
-					if _, ok := seen[item]; !ok {
-						if _, already := emitted[item]; !already {
-							emitted[item] = struct{}{}
-							if !yield(item) {
-								return
-							}
-						}
-					}
+					key := keySelector(item)
+					groups[key] = append(groups[key], item)
 				}
-			},
-		}
-	}
-	return Query[T]{
-		iterate: func(yield func(T) bool) {
-			seen := make(map[T]struct{})
-			for item := range q2.iterate {
-				seen[item] = struct{}{}
+			} else {
+				for item := range q.iterate {
+					key := keySelector(item)
+					groups[key] = append(groups[key], item)
+				}
 			}
-			emitted := make(map[T]struct{})
-			for item := range q.iterate {
-				if _, ok := seen[item]; !ok {
-					if _, already := emitted[item]; !already {
-						emitted[item] = struct{}{}
-						if !yield(item) {
-							return
-						}
-					}
+			for k, v := range groups {
+				if !yield(&KV[K, []T]{Key: k, Value: v}) {
+					return
 				}
 			}
 		},
 	}
 }
 
-// AppendTo 追加到目标切片中
-func (q Query[T]) AppendTo(dest []T) []T {
-	if q.capacity > 0 {
-		dest = slices.Grow(dest, q.capacity)
+// GroupBySelect 先分组后对每组内元素做映射
+func GroupBySelect[T, K, V comparable](q Query[T], keySelector func(T) K, elementSelector func(T) V) Query[*KV[K, []V]] {
+	return Query[*KV[K, []V]]{
+		iterate: func(yield func(*KV[K, []V]) bool) {
+			groups := make(map[K][]V, q.capacity)
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					key := keySelector(item)
+					groups[key] = append(groups[key], elementSelector(item))
+				}
+			} else {
+				for item := range q.iterate {
+					key := keySelector(item)
+					groups[key] = append(groups[key], elementSelector(item))
+				}
+			}
+			for k, v := range groups {
+				if !yield(&KV[K, []V]{Key: k, Value: v}) {
+					return
+				}
+			}
+		},
 	}
+}
+
+// ToMap 根据选择器将序列转为 Map
+func ToMap[T, K comparable](q Query[T], keySelector func(T) K) map[K]T {
+	m := make(map[K]T, q.capacity)
 	if q.fastSlice != nil {
 		for _, item := range q.fastSlice {
 			if q.fastWhere != nil && !q.fastWhere(item) {
 				continue
 			}
-			dest = append(dest, item)
+			m[keySelector(item)] = item
 		}
-		return dest
+		return m
 	}
 	for item := range q.iterate {
-		dest = append(dest, item)
+		m[keySelector(item)] = item
 	}
-	return dest
+	return m
 }
 
-// ToMapSlice 将序列转换为 []map[string]T，通常用于 JSON 序列化
-func (q Query[T]) ToMapSlice(selector func(T) map[string]T) (r []map[string]T) {
-	if q.capacity > 0 {
-		r = make([]map[string]T, 0, q.capacity)
-	}
+// ToMapSelect 根据键选择器和值选择器转换序列
+func ToMapSelect[T, K, V comparable](q Query[T], keySelector func(T) K, valueSelector func(T) V) map[K]V {
+	m := make(map[K]V, q.capacity)
 	if q.fastSlice != nil {
 		for _, item := range q.fastSlice {
 			if q.fastWhere != nil && !q.fastWhere(item) {
 				continue
 			}
-			r = append(r, selector(item))
+			m[keySelector(item)] = valueSelector(item)
 		}
-		return r
+		return m
 	}
 	for item := range q.iterate {
-		r = append(r, selector(item))
+		m[keySelector(item)] = valueSelector(item)
 	}
-	return r
+	return m
+}
+
+// SelectAsync 并发转换元素而无需手动传递 context
+func SelectAsync[T, V comparable](q Query[T], selector func(T) V, workers ...int) Query[V] {
+	return SelectAsyncCtx(context.Background(), q, selector, workers...)
+}
+
+// WhereSelect 选择满足条件并执行变换的元素
+func WhereSelect[T, V comparable](q Query[T], selector func(T) (V, bool)) Query[V] {
+	return Query[V]{
+		iterate: func(yield func(V) bool) {
+			if q.fastSlice != nil {
+				if q.fastWhere == nil {
+					for _, item := range q.fastSlice {
+						val, ok := selector(item)
+						if ok {
+							if !yield(val) {
+								return
+							}
+						}
+					}
+				} else {
+					where := q.fastWhere
+					for _, item := range q.fastSlice {
+						if !where(item) {
+							continue
+						}
+						val, ok := selector(item)
+						if ok {
+							if !yield(val) {
+								return
+							}
+						}
+					}
+				}
+				return
+			}
+			for item := range q.iterate {
+				val, ok := selector(item)
+				if ok {
+					if !yield(val) {
+						return
+					}
+				}
+			}
+		},
+		capacity: q.capacity,
+		materialize: func() []V {
+			result := make([]V, 0, q.capacity/2+1)
+			if q.fastSlice != nil {
+				if q.fastWhere == nil {
+					for _, item := range q.fastSlice {
+						val, ok := selector(item)
+						if ok {
+							result = append(result, val)
+						}
+					}
+					return result
+				}
+				where := q.fastWhere
+				for _, item := range q.fastSlice {
+					if !where(item) {
+						continue
+					}
+					val, ok := selector(item)
+					if ok {
+						result = append(result, val)
+					}
+				}
+				return result
+			}
+			for item := range q.iterate {
+				val, ok := selector(item)
+				if ok {
+					result = append(result, val)
+				}
+			}
+			return result
+		},
+	}
+}
+
+// DistinctSelect 映射并去重
+func DistinctSelect[T, V comparable](q Query[T], selector func(T) V) Query[V] {
+	capHint := q.capacity/2 + 1
+	result := Query[V]{
+		iterate: func(yield func(V) bool) {
+			seen := make(map[V]struct{}, capHint)
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
+					}
+				}
+				return
+			}
+			for item := range q.iterate {
+				val := selector(item)
+				if _, ok := seen[val]; !ok {
+					seen[val] = struct{}{}
+					if !yield(val) {
+						return
+					}
+				}
+			}
+		},
+		capacity: q.capacity,
+	}
+	if q.fastSlice != nil && q.fastWhere == nil {
+		return result
+	}
+	result.materialize = func() []V {
+		items := make([]V, 0, capHint)
+		seen := make(map[V]struct{}, capHint)
+		if q.fastSlice != nil {
+			for _, item := range q.fastSlice {
+				if q.fastWhere != nil && !q.fastWhere(item) {
+					continue
+				}
+				val := selector(item)
+				if _, ok := seen[val]; !ok {
+					seen[val] = struct{}{}
+					items = append(items, val)
+				}
+			}
+			return items
+		}
+		for item := range q.iterate {
+			val := selector(item)
+			if _, ok := seen[val]; !ok {
+				seen[val] = struct{}{}
+				items = append(items, val)
+			}
+		}
+		return items
+	}
+	return result
+}
+
+// UnionSelect 映射并合并去重
+func UnionSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+	return Query[V]{
+		iterate: func(yield func(V) bool) {
+			seen := make(map[V]struct{}, q.capacity+q2.capacity)
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
+					}
+				}
+			} else {
+				for item := range q.iterate {
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
+					}
+				}
+			}
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
+					}
+				}
+			} else {
+				for item := range q2.iterate {
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						if !yield(val) {
+							return
+						}
+					}
+				}
+			}
+		},
+		capacity: q.capacity + q2.capacity,
+		materialize: func() []V {
+			result := make([]V, 0, q.capacity+q2.capacity)
+			seen := make(map[V]struct{}, q.capacity+q2.capacity)
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						result = append(result, val)
+					}
+				}
+			} else {
+				for item := range q.iterate {
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						result = append(result, val)
+					}
+				}
+			}
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						result = append(result, val)
+					}
+				}
+			} else {
+				for item := range q2.iterate {
+					val := selector(item)
+					if _, ok := seen[val]; !ok {
+						seen[val] = struct{}{}
+						result = append(result, val)
+					}
+				}
+			}
+			return result
+		},
+	}
+}
+
+// IntersectSelect 映射并取交集去重
+func IntersectSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+	capHint := q.capacity
+	if capHint <= 0 || (q2.capacity > 0 && q2.capacity < capHint) {
+		capHint = q2.capacity
+	}
+	return Query[V]{
+		iterate: func(yield func(V) bool) {
+			// 0: 不存在 1: 存在于 q2 2: 已输出
+			seen := make(map[V]uint8, q2.capacity)
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					seen[selector(item)] = 1
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[selector(item)] = 1
+				}
+			}
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if seen[val] == 1 {
+						seen[val] = 2
+						if !yield(val) {
+							return
+						}
+					}
+				}
+				return
+			}
+			for item := range q.iterate {
+				val := selector(item)
+				if seen[val] == 1 {
+					seen[val] = 2
+					if !yield(val) {
+						return
+					}
+				}
+			}
+		},
+		capacity: capHint,
+		materialize: func() []V {
+			result := make([]V, 0, capHint)
+			// 0: 不存在 1: 存在于 q2 2: 已输出
+			seen := make(map[V]uint8, q2.capacity)
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					seen[selector(item)] = 1
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[selector(item)] = 1
+				}
+			}
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if seen[val] == 1 {
+						seen[val] = 2
+						result = append(result, val)
+					}
+				}
+				return result
+			}
+			for item := range q.iterate {
+				val := selector(item)
+				if seen[val] == 1 {
+					seen[val] = 2
+					result = append(result, val)
+				}
+			}
+			return result
+		},
+	}
+}
+
+// ExceptSelect 映射并取差集去重
+func ExceptSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+	capHint := q2.capacity + q.capacity/2 + 1
+	return Query[V]{
+		iterate: func(yield func(V) bool) {
+			// 0: 不存在 1: 存在于 q2 2: 已输出
+			seen := make(map[V]uint8, capHint)
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					seen[selector(item)] = 1
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[selector(item)] = 1
+				}
+			}
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if seen[val] == 0 {
+						seen[val] = 2
+						if !yield(val) {
+							return
+						}
+					}
+				}
+				return
+			}
+			for item := range q.iterate {
+				val := selector(item)
+				if seen[val] == 0 {
+					seen[val] = 2
+					if !yield(val) {
+						return
+					}
+				}
+			}
+		},
+		capacity: q.capacity,
+		materialize: func() []V {
+			result := make([]V, 0, q.capacity)
+			// 0: 不存在 1: 存在于 q2 2: 已输出
+			seen := make(map[V]uint8, capHint)
+			if q2.fastSlice != nil {
+				for _, item := range q2.fastSlice {
+					if q2.fastWhere != nil && !q2.fastWhere(item) {
+						continue
+					}
+					seen[selector(item)] = 1
+				}
+			} else {
+				for item := range q2.iterate {
+					seen[selector(item)] = 1
+				}
+			}
+			if q.fastSlice != nil {
+				for _, item := range q.fastSlice {
+					if q.fastWhere != nil && !q.fastWhere(item) {
+						continue
+					}
+					val := selector(item)
+					if seen[val] == 0 {
+						seen[val] = 2
+						result = append(result, val)
+					}
+				}
+				return result
+			}
+			for item := range q.iterate {
+				val := selector(item)
+				if seen[val] == 0 {
+					seen[val] = 2
+					result = append(result, val)
+				}
+			}
+			return result
+		},
+	}
 }

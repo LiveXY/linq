@@ -30,56 +30,103 @@ go test -run=^$ -bench 'Where$' -benchmem ./...
 go test -run=^$ -bench . -benchmem -count=5 -benchtime=500ms ./...
 ```
 
+也可以直接使用 Makefile：
+
+```bash
+make bench              # 全量性能测试
+make bench-where        # 仅 Where 相关
+make bench-baseline     # 生成 baseline
+make bench-compare      # 与 baseline 做 benchstat 对比
+```
+
 ## 性能对比结果
 
-以下结果基于 **Apple M4 Pro** 处理器，测试数据量为 **100,000** 条记录。
+测试环境：Apple M4 Pro / darwin arm64  
+测试命令：`go test -run=^$ -bench . -benchmem ./...`  
+测试时间：2026-03-06
 
-### 1. 核心操作对比（耗时越短越优）
+### Query 性能对比（含最优/最差）
 
-| 测试场景 | Ahmetb (go-linq) | Lo (samber/lo) | LiveXY | **Native (原生)** |
-| :--- | :--- | :--- | :--- | :--- |
-| **过滤 (Where)** | 1.46 ms | **88 us** | 208 us | 142 us |
-| **映射 (Select)** | 2.29 ms | 81 us | 230 us | **54 us** |
-| **链式调用 (W+S)**| 1.78 ms | **104 us** | 194 us | 134 us |
-| **结构体处理** | 3.60 ms | 540 us | **481 us** | 1.03 ms |
-| **去重 (Distinct)**| 1.82 ms | 533 us | 423 us | **410 us** |
+| 场景 | 当前实现 | ns/op | 对比最优 | 对比最差 | 结论 |
+|---|---|---:|---:|---:|---|
+| Where | LiveXYWhere | 267,986 | Lo 74,177 | Ahmetb 1,617,004 | 比最优慢 3.61x，但比最差快 6.03x |
+| Select | LiveXYSelect | 147,597 | Lo 51,288 | Ahmetb 2,562,052 | 比最优慢 2.88x，但比最差快 17.36x |
+| Chain | LiveXYChain | 148,463 | Lo 106,936 | Ahmetb 2,073,212 | 比最优慢 1.39x，但比最差快 13.96x |
+| Struct | LiveXYStruct | 735,754 | Lo 613,064 | Ahmetb 4,154,539 | 比最优慢 1.20x，但比最差快 5.65x |
+| Distinct | LiveXYDistinct | 470,080 | Native 442,567 | Ahmetb 2,013,004 | 接近最优（比最优慢 1.06x），但比最差快 4.28x |
+| Union | LiveXYUnion | 3,070,700 | LiveXY 3,070,700 | Ahmetb 14,689,322 | 当前最优（比最差快 4.78x） |
+| Contains | LiveXYContains | 24,207 | LiveXY 24,207 | Ahmetb 1,312,832 | 当前最优（比最差快 54.23x） |
+| Every | LiveXYEvery | 1,208,880 | Lo 1,183,069 | Ahmetb 6,505,001,542 | 接近最优（比最优慢 1.02x），但比最差快 5381.02x |
+| Some | LiveXYSome | 1,094 | LiveXY 1,094 | Native 1,150,304 | 当前最优（比最差快 1051.47x） |
+| OptimizedSome | LiveXYOptimizedSome | 1,099 | LiveXY 1,099 | Native 1,150,304 | 当前最优（比最差快 1046.68x） |
+| None | LiveXYNone | 1,090 | LiveXY 1,090 | Native 1,170,101 | 当前最优（比最差快 1073.49x） |
+| Concat | LiveXYConcat | 65,052 | LiveXY 65,052 | Ahmetb 3,912,485 | 当前最优（比最差快 60.14x） |
+| Intersect | LiveXYIntersect | 2,808,393 | Native 2,533,547 | Ahmetb 10,208,570 | 比最优慢 1.11x，但比最差快 3.64x |
+| Except | LiveXYExcept | 2,355,679 | Native 2,332,963 | Ahmetb 9,923,040 | 接近最优（比最优慢 1.01x），但比最差快 4.21x |
+| Reverse | LiveXYReverse | 57,516 | Lo 16,647 | Ahmetb 2,886,447 | 比最优慢 3.46x，但比最差快 50.19x |
+| Shuffle | LiveXYShuffle | 606,601 | Lo 564,195 | Native 609,132 | 接近最优（比最优慢 1.08x），但比最差快 1.00x |
 
-### 2. 内存分配对比（分配数越少越优）
+### Slice 性能对比（含最优/最差）
 
-| 测试场景 | Ahmetb (Allocs/op) | Lo (Allocs/op) | LiveXY (Allocs/op) | **Native (Allocs/op)** |
-| :--- | :--- | :--- | :--- | :--- |
-| **过滤 (Where)** | 100,040 | **1** | 2 | 25 |
-| **链式调用** | 149,977 | **2** | 4 | 25 |
-| **结构体处理** | 181,038 | **2** | 4 | 27 |
+| 场景 | 当前实现 | ns/op | 对比最优 | 对比最差 | 结论 |
+|---|---|---:|---:|---:|---|
+| WhereSlice | LiveXYWhereSlice | 71,569 | LiveXYWhereSlice 71,569 | Ahmetb 1,617,004 | 当前最优（比最差快 22.59x） |
+| MapSlice | LiveXYMapSlice | 50,411 | LiveXYMapSlice 50,411 | Ahmetb 2,562,052 | 当前最优（比最差快 50.82x） |
+| ChainSlice | LiveXYChainSlice | 108,358 | Lo 106,936 | Ahmetb 2,073,212 | 接近最优（比最优慢 1.01x），但比最差快 19.13x |
+| StructSlice | LiveXYStructSlice | 722,713 | Lo 613,064 | Ahmetb 4,154,539 | 比最优慢 1.18x，但比最差快 5.75x |
+| SliceUnion | LiveXYSliceUnion | 3,523,960 | LiveXYUnion 3,070,700 | Ahmetb 14,689,322 | 比最优慢 1.15x，但比最差快 4.17x |
+| SliceIntersect | LiveXYSliceIntersect | 2,882,879 | Native 2,533,547 | Ahmetb 10,208,570 | 比最优慢 1.14x，但比最差快 3.54x |
+| ConcatSlice | LiveXYConcatSlice | 74,826 | LiveXYConcat 65,052 | Ahmetb 3,912,485 | 比最优慢 1.15x，但比最差快 52.29x |
+| ReverseSlice | LiveXYReverseSlice | 17,220 | Lo 16,647 | Ahmetb 2,886,447 | 接近最优（比最优慢 1.03x），但比最差快 167.62x |
 
-## 性能测试结论
+### 排序性能对比（含稳定/不稳定）
 
-1.  **LiveXY/linq 的卓越表现**: 
-    - **超越原生的处理效率**: 在 `结构体处理` 等复杂场景中，`LiveXY` 展现出了惊人的效率 (**481 us**)，显著优于原生朴素实现 (**1.03 ms**)。这证明了其底层迭代器优化在处理复杂对象时能够有效规避内存扩容瓶颈。
-    - **极致的内存分配控制**: 其内存分配次数保持在极低水平（仅为原生实现的 1/7 左右），是高频业务场景下的理想选择。
-    - **平衡之美**: 在延迟执行（Lazy Evaluation）保证内存节省的同时，依然维持了极高性能。
+命名说明：`BenchmarkNew*` 为历史基准名，当前分别对应 `Order(...)` / `OrderUnstable(...)` 系列 API。
 
-2.  **Lo 表现极其平衡**: `samber/lo` 在大多数基础操作中表现极佳，代码简洁且性能非常接近原生，是目前 Go 社区的主流之选。
+| 场景 | 当前实现 | ns/op | 对比最优 | 结论 |
+|---|---|---:|---:|---|
+| 单键(稳定) | LiveXYOneSort | 106,994 | SlicesOneSort 24,262 | 比最优慢 4.41x |
+| 单键(稳定) | Order(Asc) [BenchmarkNewOneSort] | 107,953 | SlicesOneSort 24,262 | 比最优慢 4.45x |
+| 单键(稳定) | AhmetbOneSort | 125,792 | SlicesOneSort 24,262 | 比最优慢 5.18x |
+| 单键(稳定) | NativeOneSort | 33,727 | SlicesOneSort 24,262 | 比最优慢 1.39x |
+| 单键(稳定) | SlicesOneSort | 24,262 | SlicesOneSort 24,262 | 当前最优 |
+| 单键(不稳定) | LiveXYOneSortUnstable | 43,038 | SlicesOneSort 24,262 | 比最优慢 1.77x |
+| 单键(不稳定) | OrderUnstable(Asc) [BenchmarkNewOneSortUnstable] | 45,325 | SlicesOneSort 24,262 | 比最优慢 1.87x |
+| 双键(稳定) | LiveXYTwoSort | 139,498 | SlicesTwoSort 29,435 | 比最优慢 4.74x |
+| 双键(稳定) | Order+Then [BenchmarkNewTwoSort] | 141,765 | SlicesTwoSort 29,435 | 比最优慢 4.82x |
+| 双键(稳定) | AhmetbTwoSort | 157,771 | SlicesTwoSort 29,435 | 比最优慢 5.36x |
+| 双键(稳定) | NativeTwoSort | 41,747 | SlicesTwoSort 29,435 | 比最优慢 1.42x |
+| 双键(稳定) | SlicesTwoSort | 29,435 | SlicesTwoSort 29,435 | 当前最优 |
+| 双键(不稳定) | LiveXYTwoSortUnstable | 79,403 | SlicesTwoSort 29,435 | 比最优慢 2.70x |
+| 双键(不稳定) | OrderUnstable+Then [BenchmarkNewTwoSortUnstable] | 84,070 | SlicesTwoSort 29,435 | 比最优慢 2.86x |
+| 三键(稳定) | LiveXYThreeSort | 147,576 | SlicesStableFunc 86,901 | 比最优慢 1.70x |
+| 三键(稳定) | Order+Then+Then [BenchmarkNewThreeSort] | 148,071 | SlicesStableFunc 86,901 | 比最优慢 1.70x |
+| 三键(稳定) | Order(单比较器) [BenchmarkNew2ThreeSort] | 90,116 | SlicesStableFunc 86,901 | 接近最优（比最优慢 1.04x） |
+| 三键(稳定) | AhmetbThreeSort | 198,602 | SlicesStableFunc 86,901 | 比最优慢 2.29x |
+| 三键(稳定) | NativeStableThreeSort | 217,985 | SlicesStableFunc 86,901 | 比最优慢 2.51x |
+| 三键(稳定) | SlicesStableFuncThreeSort | 86,901 | SlicesStableFunc 86,901 | 当前最优 |
+| 三键(稳定) | SlicesStableCompareThreeSort | 87,061 | SlicesStableFunc 86,901 | 接近最优（比最优慢 1.00x） |
+| 三键(不稳定) | LiveXYThreeSortUnstable | 98,161 | SlicesSortFunc 38,179 | 比最优慢 2.57x |
+| 三键(不稳定) | OrderUnstable+Then+Then [BenchmarkNewThreeSortUnstable] | 105,858 | SlicesSortFunc 38,179 | 比最优慢 2.77x |
+| 三键(不稳定) | OrderUnstable(单比较器) [BenchmarkNew2ThreeSortUnstable] | 40,867 | SlicesSortFunc 38,179 | 接近最优（比最优慢 1.07x） |
+| 三键(不稳定) | NativeThreeSort | 56,044 | SlicesSortFunc 38,179 | 比最优慢 1.47x |
+| 三键(不稳定) | SlicesSortFuncThreeSort | 38,179 | SlicesSortFunc 38,179 | 当前最优 |
+| 三键(不稳定) | SlicesSortCompareThreeSort | 38,399 | SlicesSortFunc 38,179 | 接近最优（比最优慢 1.01x） |
 
-3.  **淘汰 interface{} 库**：以 `Ahmetb (go-linq v3)` 为代表的非泛型库由于严重的装箱开销，性能已落后泛型库 10‑20 倍，强烈建议迁移。
+### 稳定 vs 不稳定收益对照（按提速倍率排序）
 
-## 综合分析与建议
+| 对比项 | 稳定 ns/op | 不稳定 ns/op | 提速倍率 | 绝对减少(ns) | 结论 |
+|---|---:|---:|---:|---:|---|
+| LiveXYOneSort | 106,994 | 43,038 | 2.49x | 63,956 | 收益最高，优先使用不稳定排序 |
+| Order(Asc) [BenchmarkNewOneSort] | 107,953 | 45,325 | 2.38x | 62,628 | 收益很高，明显优于稳定版 |
+| Order(单比较器) [BenchmarkNew2ThreeSort] | 90,116 | 40,867 | 2.21x | 49,249 | 收益很高，接近原生最快组 |
+| LiveXYTwoSort | 139,498 | 79,403 | 1.76x | 60,095 | 收益显著，双键场景建议优先不稳定 |
+| Order+Then [BenchmarkNewTwoSort] | 141,765 | 84,070 | 1.69x | 57,695 | 收益显著，链式 Then 同样受益 |
+| LiveXYThreeSort | 147,576 | 98,161 | 1.50x | 49,415 | 中等收益，三键链路有改善 |
+| Order+Then+Then [BenchmarkNewThreeSort] | 148,071 | 105,858 | 1.40x | 42,213 | 中等收益，仍建议优先不稳定 |
 
-| 实现 | 优势 | 劣势 |
-|------|------|------|
-| **Native** | 代码最直观、无额外依赖；在单纯 `for` 循环下仍保持极佳性能。 | 对复杂链式操作需要手写大量重复代码，结构体处理内存分配相对较高。 |
-| **Lo** | 泛型 **Eager** 实现，性能接近原生；API 简洁，函数式风格易读；极低内存分配。 | Eager 模式在极端链式场景仍会产生中间切片。 |
-| **LiveXY** | **Lazy** 延迟执行，结构体处理显著优于原生；内存分配极低，适合高并发、内存敏感业务。 | 学习曲线稍高；在轻量 Where/Select 场景略慢于 Lo。 |
-| **Ahmetb** | API 与 .NET LINQ 最相似，迁移成本低。 | 装箱 + 反射导致时间与内存开销巨大，已不适合生产环境。 |
+## 结论摘要
 
-### 使用建议
-
-- **简单遍历、过滤、映射**：使用 **Native** 或已引入的 **Lo**。
-- **链式查询、复杂业务逻辑**：首选 **LiveXY**（惰性求值避免中间拷贝）。
-- **高并发、内存受限**：推荐 **LiveXY**，分配次数最少。
-- **已有 Lo 代码库**：继续使用 **Lo**，除非出现结构体拷贝瓶颈再考虑 **LiveXY**。
-- **迁移旧项目**（使用 go‑linq）：尽快迁移至 **Lo** 或 **LiveXY**，可提升 10‑20 倍性能。
-
----
-
-*注：性能数据受环境影响，建议在实际生产环境部署前重新进行 Benchmark。*
+- `Select` 主链相较上一轮有明显改善（约 `307,649 -> 147,597 ns/op`），`Some/None` 进入 `~1,100 ns/op`。
+- `Union/Contains/Some/OptimizedSome/None/Concat` 继续保持最优，`Except` 已接近 `Native`（约 `1.01x`）。
+- 当前主要短板是 Query 主链 `Where/Reverse` 与稳定排序链路；不稳定排序可持续显著缩小差距。

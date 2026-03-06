@@ -360,6 +360,30 @@ func BenchmarkNewOneSort(b *testing.B) {
 	}
 }
 
+// BenchmarkLiveXYOneSortUnstable 测试 LiveXY 库的不稳定单级排序性能
+func BenchmarkLiveXYOneSortUnstable(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		livexy.OrderByUnstable(q, func(u User) int {
+			return u.Age
+		}).ToSlice()
+	}
+}
+
+// BenchmarkNewOneSortUnstable 测试新实现 (OrderUnstable API) 的单级排序性能
+func BenchmarkNewOneSortUnstable(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.OrderUnstable(livexy.Asc(func(u User) int {
+			return u.Age
+		})).ToSlice()
+	}
+}
+
 // BenchmarkAhmetbOneSort 测试 go-linq (ahmetb) 库的单级排序性能
 func BenchmarkAhmetbOneSort(b *testing.B) {
 	smallData := userList[:1000]
@@ -417,6 +441,35 @@ func BenchmarkNewTwoSort(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		q.Order(livexy.Asc(func(u User) int {
+			return u.Age
+		})).Then(livexy.Asc(func(u User) int {
+			return u.Gender
+		})).ToSlice()
+	}
+}
+
+// BenchmarkLiveXYTwoSortUnstable 测试 LiveXY 库的不稳定二级排序性能 (Age -> Gender)
+func BenchmarkLiveXYTwoSortUnstable(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q2 := livexy.OrderByUnstable(q, func(u User) int {
+			return u.Age
+		})
+		livexy.ThenBy(q2, func(u User) int {
+			return u.Gender
+		}).ToSlice()
+	}
+}
+
+// BenchmarkNewTwoSortUnstable 测试新实现 (OrderUnstable API) 的二级排序性能
+func BenchmarkNewTwoSortUnstable(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.OrderUnstable(livexy.Asc(func(u User) int {
 			return u.Age
 		})).Then(livexy.Asc(func(u User) int {
 			return u.Gender
@@ -503,6 +556,40 @@ func BenchmarkNewThreeSort(b *testing.B) {
 	}
 }
 
+// BenchmarkLiveXYThreeSortUnstable 测试 LiveXY 库的不稳定三级排序性能 (Age -> Gender -> ID)
+func BenchmarkLiveXYThreeSortUnstable(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q2 := livexy.OrderByUnstable(q, func(u User) int {
+			return u.Age
+		})
+		q3 := livexy.ThenBy(q2, func(u User) int {
+			return u.Gender
+		})
+		livexy.ThenBy(q3, func(u User) int {
+			return u.ID
+		}).ToSlice()
+	}
+}
+
+// BenchmarkNewThreeSortUnstable 测试新实现 (OrderUnstable API) 的三级排序性能
+func BenchmarkNewThreeSortUnstable(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.OrderUnstable(livexy.Asc(func(u User) int {
+			return u.Age
+		})).Then(livexy.Asc(func(u User) int {
+			return u.Gender
+		})).Then(livexy.Asc(func(u User) int {
+			return u.ID
+		})).ToSlice()
+	}
+}
+
 // BenchmarkNewThreeSort 测试新实现 (Order API) 的三级排序性能
 func BenchmarkNew2ThreeSort(b *testing.B) {
 	smallData := userList[:1000]
@@ -510,6 +597,24 @@ func BenchmarkNew2ThreeSort(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		q.Order(func(a, b User) int {
+			if c := cmp.Compare(a.Age, b.Age); c != 0 {
+				return c
+			}
+			if c := cmp.Compare(a.Gender, b.Gender); c != 0 {
+				return c
+			}
+			return cmp.Compare(a.ID, b.ID)
+		}).ToSlice()
+	}
+}
+
+// BenchmarkNew2ThreeSortUnstable 测试新实现 (OrderUnstable + 单比较器) 的三级排序性能
+func BenchmarkNew2ThreeSortUnstable(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.OrderUnstable(func(a, b User) int {
 			if c := cmp.Compare(a.Age, b.Age); c != 0 {
 				return c
 			}

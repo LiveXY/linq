@@ -7,7 +7,7 @@ import (
 
 // HasOrder 判断查询目前是否已定义排序规则
 func (q Query[T]) HasOrder() bool {
-	return q.compare != nil
+	return q.compare != nil || len(q.sortCompares) > 0
 }
 
 // OrderBy 指定主要排序键，按升序对序列元素进行排序
@@ -24,6 +24,20 @@ func OrderByDescending[T comparable, K cmp.Ordered](q Query[T], key func(T) K) Q
 	})
 }
 
+// OrderByUnstable 指定主要排序键，按升序进行不稳定排序
+func OrderByUnstable[T comparable, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
+	return orderByUnstable(q, func(a, b T) int {
+		return cmp.Compare(key(a), key(b))
+	})
+}
+
+// OrderByDescendingUnstable 指定主要排序键，按降序进行不稳定排序
+func OrderByDescendingUnstable[T comparable, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
+	return orderByUnstable(q, func(a, b T) int {
+		return cmp.Compare(key(b), key(a))
+	})
+}
+
 // ThenBy 指定次要排序键，按升序对序列元素进行后续排序
 func ThenBy[T comparable, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
 	if !q.HasOrder() {
@@ -32,7 +46,7 @@ func ThenBy[T comparable, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
 	nextCmp := func(a, b T) int {
 		return cmp.Compare(key(a), key(b))
 	}
-	return orderBy(q, chainComparisons(q.compare, nextCmp))
+	return orderBy(q, nextCmp)
 }
 
 // ThenByDescending 指定次要排序键，按降序对序列元素进行后续排序
@@ -43,54 +57,131 @@ func ThenByDescending[T comparable, K cmp.Ordered](q Query[T], key func(T) K) Qu
 	nextCmp := func(a, b T) int {
 		return cmp.Compare(key(b), key(a))
 	}
-	return orderBy(q, chainComparisons(q.compare, nextCmp))
+	return orderBy(q, nextCmp)
 }
 
-// 链式组合比较器
-func chainComparisons[T comparable](a, b CompareFunc[T]) CompareFunc[T] {
-	return func(x, y T) int {
-		if r := a(x, y); r != 0 {
-			return r
+// 组合比较器：按优先级依次比较
+func composeComparators[T comparable](comparators []CompareFunc[T]) CompareFunc[T] {
+	switch len(comparators) {
+	case 0:
+		return nil
+	case 1:
+		return comparators[0]
+	case 2:
+		c0, c1 := comparators[0], comparators[1]
+		return func(a, b T) int {
+			if r := c0(a, b); r != 0 {
+				return r
+			}
+			return c1(a, b)
 		}
-		return b(x, y)
+	case 3:
+		c0, c1, c2 := comparators[0], comparators[1], comparators[2]
+		return func(a, b T) int {
+			if r := c0(a, b); r != 0 {
+				return r
+			}
+			if r := c1(a, b); r != 0 {
+				return r
+			}
+			return c2(a, b)
+		}
+	default:
+		return func(a, b T) int {
+			for _, cmpFn := range comparators {
+				if r := cmpFn(a, b); r != 0 {
+					return r
+				}
+			}
+			return 0
+		}
 	}
 }
 
 // 核心排序执行函数
 func orderBy[T comparable](q Query[T], cmpFn CompareFunc[T]) Query[T] {
+	return orderByWithMode(q, cmpFn, true)
+}
+
+// 核心不稳定排序执行函数
+func orderByUnstable[T comparable](q Query[T], cmpFn CompareFunc[T]) Query[T] {
+	return orderByWithMode(q, cmpFn, false)
+}
+
+func orderByWithMode[T comparable](q Query[T], cmpFn CompareFunc[T], stable bool) Query[T] {
 	var source Query[T]
 	if q.sortSource != nil {
 		source = *q.sortSource
 	} else {
 		source = q
 	}
+
+	comparators := make([]CompareFunc[T], 0, len(q.sortCompares)+1)
+	if len(q.sortCompares) > 0 {
+		comparators = append(comparators, q.sortCompares...)
+	} else if q.compare != nil {
+		comparators = append(comparators, q.compare)
+	}
+	comparators = append(comparators, cmpFn)
+	combinedCmp := composeComparators(comparators)
+
+	sortStable := stable
+	if q.sortSource != nil {
+		sortStable = q.sortStable
+	}
+
+	materialize := func() []T {
+		data := source.ToSlice()
+		if combinedCmp == nil || len(data) <= 1 {
+			return data
+		}
+		if sortStable {
+			slices.SortStableFunc(data, combinedCmp)
+		} else {
+			slices.SortFunc(data, combinedCmp)
+		}
+		return data
+	}
 	return Query[T]{
-		compare: cmpFn,
+		compare: combinedCmp,
 		iterate: func(yield func(T) bool) {
-			data := source.ToSlice()
-			slices.SortStableFunc(data, cmpFn)
+			data := materialize()
 			for _, item := range data {
 				if !yield(item) {
 					return
 				}
 			}
 		},
-		capacity:   source.capacity,
-		sortSource: &source,
+		capacity:     source.capacity,
+		materialize:  materialize,
+		sortSource:   &source,
+		sortCompares: comparators,
+		sortStable:   sortStable,
 	}
 }
 
 // OrderedQuery 包含已有的排序规则，供特定场景复用
 type OrderedQuery[T comparable] struct {
 	Query[T]
-	sortCmp CompareFunc[T]
+	sortCompares []CompareFunc[T]
+	sortStable   bool
 }
 
 // Order 指定排序规则
 func (q Query[T]) Order(comparator CompareFunc[T]) OrderedQuery[T] {
 	return OrderedQuery[T]{
-		Query:   q,
-		sortCmp: comparator,
+		Query:        q,
+		sortCompares: []CompareFunc[T]{comparator},
+		sortStable:   true,
+	}
+}
+
+// OrderUnstable 指定排序规则并使用不稳定排序
+func (q Query[T]) OrderUnstable(comparator CompareFunc[T]) OrderedQuery[T] {
+	return OrderedQuery[T]{
+		Query:        q,
+		sortCompares: []CompareFunc[T]{comparator},
+		sortStable:   false,
 	}
 }
 
@@ -110,28 +201,48 @@ func Desc[T comparable, K cmp.Ordered](selector func(T) K) CompareFunc[T] {
 
 // Then 添加后续排序规则
 func (oq OrderedQuery[T]) Then(comparator CompareFunc[T]) OrderedQuery[T] {
-	prevCompare := oq.sortCmp
+	comparators := make([]CompareFunc[T], 0, len(oq.sortCompares)+1)
+	if len(oq.sortCompares) > 0 {
+		comparators = append(comparators, oq.sortCompares...)
+	} else if oq.Query.compare != nil {
+		comparators = append(comparators, oq.Query.compare)
+	}
+	comparators = append(comparators, comparator)
+
+	stable := oq.sortStable
+	if len(oq.sortCompares) == 0 && oq.Query.compare == nil {
+		stable = true
+	}
+
 	return OrderedQuery[T]{
-		Query: oq.Query,
-		sortCmp: func(a, b T) int {
-			if res := prevCompare(a, b); res != 0 {
-				return res
-			}
-			return comparator(a, b)
-		},
+		Query:        oq.Query,
+		sortCompares: comparators,
+		sortStable:   stable,
 	}
 }
 
 // ToQuery 将 OrderedQuery 转换为已排序的 Query
 func (oq OrderedQuery[T]) ToQuery() Query[T] {
-	data := oq.Query.ToSlice()
-	slices.SortStableFunc(data, oq.sortCmp)
-	return From(data)
+	return From(oq.sortedSlice())
 }
 
 // ToSlice 提供已排序结果
 func (oq OrderedQuery[T]) ToSlice() []T {
-	return oq.ToQuery().ToSlice()
+	return oq.sortedSlice()
+}
+
+func (oq OrderedQuery[T]) sortedSlice() []T {
+	data := oq.Query.ToSlice()
+	cmpFn := composeComparators(oq.sortCompares)
+	if cmpFn == nil || len(data) <= 1 {
+		return data
+	}
+	if oq.sortStable {
+		slices.SortStableFunc(data, cmpFn)
+	} else {
+		slices.SortFunc(data, cmpFn)
+	}
+	return data
 }
 
 // First 返回已排序第一个元素
