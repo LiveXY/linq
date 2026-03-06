@@ -118,7 +118,7 @@ func Sum[T Integer | Float | Complex](q Query[T]) T {
 }
 
 // SumBy 根据选择器获取成员和
-func SumBy[T any, R Integer | Float | Complex](q Query[T], selector func(T) R) R {
+func SumBy[T comparable, R Integer | Float | Complex](q Query[T], selector func(T) R) R {
 	if q.fastSlice != nil {
 		var sum R
 		for _, v := range q.fastSlice {
@@ -166,7 +166,7 @@ func Average[T Integer | Float](q Query[T]) float64 {
 }
 
 // AverageBy 根据选择器计算平均值
-func AverageBy[T any, R Integer | Float](q Query[T], selector func(T) R) float64 {
+func AverageBy[T comparable, R Integer | Float](q Query[T], selector func(T) R) float64 {
 	if q.fastSlice != nil {
 		var sum float64
 		count := 0
@@ -195,7 +195,7 @@ func AverageBy[T any, R Integer | Float](q Query[T], selector func(T) R) float64
 }
 
 // AvgBy 顶级函数别名
-func AvgBy[T any, R Integer | Float](q Query[T], selector func(T) R) float64 {
+func AvgBy[T comparable, R Integer | Float](q Query[T], selector func(T) R) float64 {
 	return AverageBy(q, selector)
 }
 
@@ -271,6 +271,8 @@ func (q Query[T]) Last() T {
 			if len(source) > 0 {
 				return source[len(source)-1]
 			}
+			var zero T
+			return zero
 		} else {
 			for i := len(source) - 1; i >= 0; i-- {
 				if pre(source[i]) {

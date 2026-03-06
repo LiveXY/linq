@@ -3,8 +3,9 @@
 package linq_benchmark
 
 import (
+	"cmp"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"slices"
 	"sort"
 	"testing"
@@ -12,11 +13,13 @@ import (
 	ahmetb "github.com/ahmetb/go-linq/v3"
 	livexy "github.com/livexy/linq"
 	lo "github.com/samber/lo"
+	"github.com/samber/lo/mutable"
 )
 
 // 数据准备及全局常量
 const (
 	size = 100000 // 测试数据量：10万条
+	seed = 20260306
 )
 
 var (
@@ -37,6 +40,8 @@ type User struct {
 
 // 初始化测试数据，包括整数序列、重复数据和结构体切片
 func init() {
+	rng := rand.New(rand.NewPCG(seed, seed+1))
+
 	intData = make([]int, size)
 	for i := 0; i < size; i++ {
 		intData[i] = i
@@ -49,10 +54,8 @@ func init() {
 
 	intSubset = make([]int, size/10)
 	for i := 0; i < size/10; i++ {
-		intSubset[i] = rand.Intn(size) // 随机在 0 到 size-1 之间取值
+		intSubset[i] = rng.IntN(size) // 固定随机种子，保证可复现
 	}
-
-	fmt.Println(len(intData), len(intSubset))
 
 	duplicateData = make([]int, size)
 	for i := 0; i < size; i++ {
@@ -64,16 +67,16 @@ func init() {
 		userList[i] = User{
 			ID:     i,
 			Name:   fmt.Sprintf("用户%d", i),
-			Age:    rand.Intn(100),
-			Gender: rand.Intn(2),
+			Age:    rng.IntN(100),
+			Gender: rng.IntN(2),
 		}
 	}
 }
 
 // --- 基准测试: Where (过滤) ---
 
-// Benchmark_LiveXY_Where 测试 LiveXY 库的过滤性能
-func Benchmark_LiveXY_Where(b *testing.B) {
+// BenchmarkLiveXYWhere 测试 LiveXY 库的过滤性能
+func BenchmarkLiveXYWhere(b *testing.B) {
 	var query = livexy.From(intData)
 	for i := 0; i < b.N; i++ {
 		_ = query.Where(func(i int) bool {
@@ -82,8 +85,8 @@ func Benchmark_LiveXY_Where(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY2_Where 测试 LiveXY 库的过滤性能
-func Benchmark_LiveXY2_Where(b *testing.B) {
+// BenchmarkLiveXYWhereSlice 测试 LiveXY 库的切片级过滤性能
+func BenchmarkLiveXYWhereSlice(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = livexy.Where(intData, func(i int) bool {
 			return i%2 == 0
@@ -91,8 +94,8 @@ func Benchmark_LiveXY2_Where(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY3_Where 测试 LiveXY 库的过滤性能
-func Benchmark_LiveXY3_Where(b *testing.B) {
+// BenchmarkLiveXYWhereSelect 测试 LiveXY 库的 WhereSelect 过滤性能
+func BenchmarkLiveXYWhereSelect(b *testing.B) {
 	var query = livexy.From(intData)
 	for i := 0; i < b.N; i++ {
 		_ = livexy.WhereSelect(query, func(i int) (int, bool) {
@@ -101,8 +104,8 @@ func Benchmark_LiveXY3_Where(b *testing.B) {
 	}
 }
 
-// Benchmark_Ahmetb_Where 测试 go-linq (ahmetb) 库的过滤性能
-func Benchmark_Ahmetb_Where(b *testing.B) {
+// BenchmarkAhmetbWhere 测试 go-linq (ahmetb) 库的过滤性能
+func BenchmarkAhmetbWhere(b *testing.B) {
 	var query = ahmetb.From(intData)
 	for i := 0; i < b.N; i++ {
 		var res []int
@@ -112,8 +115,8 @@ func Benchmark_Ahmetb_Where(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Where 测试 lo 库的过滤性能
-func Benchmark_Lo_Where(b *testing.B) {
+// BenchmarkLoWhere 测试 lo 库的过滤性能
+func BenchmarkLoWhere(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = lo.Filter(intData, func(i int, _ int) bool {
 			return i%2 == 0
@@ -121,8 +124,8 @@ func Benchmark_Lo_Where(b *testing.B) {
 	}
 }
 
-// Benchmark_Native_Where 测试原生 Go for 循环的过滤性能
-func Benchmark_Native_Where(b *testing.B) {
+// BenchmarkNativeWhere 测试原生 Go for 循环的过滤性能
+func BenchmarkNativeWhere(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var res []int
 		// 注意：为了公平对比，这里不预分配容量。
@@ -137,8 +140,8 @@ func Benchmark_Native_Where(b *testing.B) {
 
 // --- 基准测试: Select (映射) ---
 
-// Benchmark_LiveXY_Select 测试 LiveXY 库的映射性能
-func Benchmark_LiveXY_Select(b *testing.B) {
+// BenchmarkLiveXYSelect 测试 LiveXY 库的映射性能
+func BenchmarkLiveXYSelect(b *testing.B) {
 	q := livexy.From(intData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -148,8 +151,8 @@ func Benchmark_LiveXY_Select(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY2_Select 测试 LiveXY 库的映射性能
-func Benchmark_LiveXY2_Select(b *testing.B) {
+// BenchmarkLiveXYMapSlice 测试 LiveXY 库的切片级映射性能
+func BenchmarkLiveXYMapSlice(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = livexy.Map(intData, func(i int) int {
 			return i * 2
@@ -157,8 +160,8 @@ func Benchmark_LiveXY2_Select(b *testing.B) {
 	}
 }
 
-// Benchmark_Ahmetb_Select 测试 go-linq (ahmetb) 库的映射性能
-func Benchmark_Ahmetb_Select(b *testing.B) {
+// BenchmarkAhmetbSelect 测试 go-linq (ahmetb) 库的映射性能
+func BenchmarkAhmetbSelect(b *testing.B) {
 	query := ahmetb.From(intData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -169,8 +172,8 @@ func Benchmark_Ahmetb_Select(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Select 测试 lo 库的映射性能
-func Benchmark_Lo_Select(b *testing.B) {
+// BenchmarkLoSelect 测试 lo 库的映射性能
+func BenchmarkLoSelect(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = lo.Map(intData, func(i int, _ int) int {
 			return i * 2
@@ -178,8 +181,8 @@ func Benchmark_Lo_Select(b *testing.B) {
 	}
 }
 
-// Benchmark_Native_Select 测试原生 Go for 循环的映射性能
-func Benchmark_Native_Select(b *testing.B) {
+// BenchmarkNativeSelect 测试原生 Go for 循环的映射性能
+func BenchmarkNativeSelect(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		res := make([]int, len(intData))
 		for i, v := range intData {
@@ -190,8 +193,8 @@ func Benchmark_Native_Select(b *testing.B) {
 
 // --- 基准测试: 链式调用 (Where + Select) ---
 
-// Benchmark_LiveXY_Chain 测试 LiveXY 库的链式调用 (过滤+映射) 性能
-func Benchmark_LiveXY_Chain(b *testing.B) {
+// BenchmarkLiveXYChain 测试 LiveXY 库的链式调用 (过滤+映射) 性能
+func BenchmarkLiveXYChain(b *testing.B) {
 	query := livexy.From(intData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -204,8 +207,8 @@ func Benchmark_LiveXY_Chain(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY2_Chain 测试 LiveXY 库的链式调用 (过滤+映射) 性能
-func Benchmark_LiveXY2_Chain(b *testing.B) {
+// BenchmarkLiveXYChainWhereSelect 测试 LiveXY 库的 WhereSelect 链式调用性能
+func BenchmarkLiveXYChainWhereSelect(b *testing.B) {
 	query := livexy.From(intData)
 	for i := 0; i < b.N; i++ {
 		_ = livexy.WhereSelect(query, func(i int) (int, bool) {
@@ -214,8 +217,8 @@ func Benchmark_LiveXY2_Chain(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY3_Chain 测试 LiveXY 库的链式调用性能
-func Benchmark_LiveXY3_Chain(b *testing.B) {
+// BenchmarkLiveXYChainSlice 测试 LiveXY 库的切片级链式调用性能
+func BenchmarkLiveXYChainSlice(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		filtered := livexy.Where(intData, func(i int) bool {
 			return i%2 == 0
@@ -226,8 +229,8 @@ func Benchmark_LiveXY3_Chain(b *testing.B) {
 	}
 }
 
-// Benchmark_Ahmetb_Chain 测试 go-linq (ahmetb) 库的链式调用性能
-func Benchmark_Ahmetb_Chain(b *testing.B) {
+// BenchmarkAhmetbChain 测试 go-linq (ahmetb) 库的链式调用性能
+func BenchmarkAhmetbChain(b *testing.B) {
 	query := ahmetb.From(intData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -240,8 +243,8 @@ func Benchmark_Ahmetb_Chain(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Chain 测试 lo 库的链式调用性能
-func Benchmark_Lo_Chain(b *testing.B) {
+// BenchmarkLoChain 测试 lo 库的链式调用性能
+func BenchmarkLoChain(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// lo 是及早求值的（Eager），会创建中间临时切片
 		filtered := lo.Filter(intData, func(i int, _ int) bool {
@@ -253,8 +256,8 @@ func Benchmark_Lo_Chain(b *testing.B) {
 	}
 }
 
-// Benchmark_Native_Chain 测试原生 Go 实现的链式处理性能
-func Benchmark_Native_Chain(b *testing.B) {
+// BenchmarkNativeChain 测试原生 Go 实现的链式处理性能
+func BenchmarkNativeChain(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var res []int
 		for _, v := range intData {
@@ -267,8 +270,8 @@ func Benchmark_Native_Chain(b *testing.B) {
 
 // --- 基准测试: 结构体处理 (过滤年龄 > 18, 映射出姓名) ---
 
-// Benchmark_LiveXY_Struct 测试 LiveXY 库处理结构体切片的性能
-func Benchmark_LiveXY_Struct(b *testing.B) {
+// BenchmarkLiveXYStruct 测试 LiveXY 库处理结构体切片的性能
+func BenchmarkLiveXYStruct(b *testing.B) {
 	query := livexy.From(userList)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -281,8 +284,8 @@ func Benchmark_LiveXY_Struct(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY2_Struct 测试 LiveXY 库处理结构体切片的性能
-func Benchmark_LiveXY2_Struct(b *testing.B) {
+// BenchmarkLiveXYStructSlice 测试 LiveXY 库的切片级结构体处理性能
+func BenchmarkLiveXYStructSlice(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		filtered := livexy.Where(userList, func(u User) bool {
 			return u.Age > 18
@@ -293,8 +296,8 @@ func Benchmark_LiveXY2_Struct(b *testing.B) {
 	}
 }
 
-// Benchmark_Ahmetb_Struct 测试 go-linq (ahmetb) 库处理结构体切片的性能
-func Benchmark_Ahmetb_Struct(b *testing.B) {
+// BenchmarkAhmetbStruct 测试 go-linq (ahmetb) 库处理结构体切片的性能
+func BenchmarkAhmetbStruct(b *testing.B) {
 	query := ahmetb.From(userList)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -307,8 +310,8 @@ func Benchmark_Ahmetb_Struct(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Struct 测试 lo 库处理结构体切片的性能
-func Benchmark_Lo_Struct(b *testing.B) {
+// BenchmarkLoStruct 测试 lo 库处理结构体切片的性能
+func BenchmarkLoStruct(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		filtered := lo.Filter(userList, func(u User, _ int) bool {
 			return u.Age > 18
@@ -319,8 +322,8 @@ func Benchmark_Lo_Struct(b *testing.B) {
 	}
 }
 
-// Benchmark_Native_Struct 测试原生 Go 实现处理结构体的性能
-func Benchmark_Native_Struct(b *testing.B) {
+// BenchmarkNativeStruct 测试原生 Go 实现处理结构体的性能
+func BenchmarkNativeStruct(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		var res []string
 		for _, u := range userList {
@@ -333,8 +336,8 @@ func Benchmark_Native_Struct(b *testing.B) {
 
 // --- 基准测试: 结构体排序 (OrderBy) ---
 
-// Benchmark_LiveXY_Sort 测试 LiveXY 库的排序性能
-func Benchmark_LiveXY_OneSort(b *testing.B) {
+// BenchmarkLiveXYOneSort 测试 LiveXY 库的单级排序性能
+func BenchmarkLiveXYOneSort(b *testing.B) {
 	smallData := userList[:1000]
 	q := livexy.From(smallData)
 	b.ResetTimer()
@@ -345,8 +348,8 @@ func Benchmark_LiveXY_OneSort(b *testing.B) {
 	}
 }
 
-// Benchmark_New_OneSort 测试新实现 (Query2) 的单级排序性能
-func Benchmark_New_OneSort(b *testing.B) {
+// BenchmarkNewOneSort 测试新实现 (Order API) 的单级排序性能
+func BenchmarkNewOneSort(b *testing.B) {
 	smallData := userList[:1000]
 	q := livexy.From(smallData)
 	b.ResetTimer()
@@ -357,8 +360,8 @@ func Benchmark_New_OneSort(b *testing.B) {
 	}
 }
 
-// Benchmark_Ahmetb_Sort 测试 go-linq (ahmetb) 库的排序性能
-func Benchmark_Ahmetb_OneSort(b *testing.B) {
+// BenchmarkAhmetbOneSort 测试 go-linq (ahmetb) 库的单级排序性能
+func BenchmarkAhmetbOneSort(b *testing.B) {
 	smallData := userList[:1000]
 	query := ahmetb.From(smallData)
 	b.ResetTimer()
@@ -370,8 +373,8 @@ func Benchmark_Ahmetb_OneSort(b *testing.B) {
 	}
 }
 
-// Benchmark_Native_Sort 测试原生 Go sort.Slice 的排序性能
-func Benchmark_Native_OneSort(b *testing.B) {
+// BenchmarkNativeOneSort 测试原生 Go sort.Slice 的单级排序性能
+func BenchmarkNativeOneSort(b *testing.B) {
 	smallData := make([]User, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -380,8 +383,8 @@ func Benchmark_Native_OneSort(b *testing.B) {
 	}
 }
 
-// Benchmark_Slices_Sort 测试原生 Go slices.SortFunc 的排序性能 (Go 1.21+)
-func Benchmark_Slices_OneSort(b *testing.B) {
+// BenchmarkSlicesOneSort 测试原生 Go slices.SortFunc 的单级排序性能 (Go 1.21+)
+func BenchmarkSlicesOneSort(b *testing.B) {
 	smallData := make([]User, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -392,8 +395,8 @@ func Benchmark_Slices_OneSort(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY_Sort_Double 测试 LiveXY 库的二级排序性能 (Age -> Gender)
-func Benchmark_LiveXY_TwoSort(b *testing.B) {
+// BenchmarkLiveXYTwoSort 测试 LiveXY 库的二级排序性能 (Age -> Gender)
+func BenchmarkLiveXYTwoSort(b *testing.B) {
 	smallData := userList[:1000]
 	q := livexy.From(smallData)
 	b.ResetTimer()
@@ -407,8 +410,8 @@ func Benchmark_LiveXY_TwoSort(b *testing.B) {
 	}
 }
 
-// Benchmark_New_TwoSort 测试新实现 (Query2) 的二级排序性能
-func Benchmark_New_TwoSort(b *testing.B) {
+// BenchmarkNewTwoSort 测试新实现 (Order API) 的二级排序性能
+func BenchmarkNewTwoSort(b *testing.B) {
 	smallData := userList[:1000]
 	q := livexy.From(smallData)
 	b.ResetTimer()
@@ -421,8 +424,8 @@ func Benchmark_New_TwoSort(b *testing.B) {
 	}
 }
 
-// Benchmark_Ahmetb_Sort_Double 测试 go-linq (ahmetb) 库的二级排序性能
-func Benchmark_Ahmetb_TwoSort(b *testing.B) {
+// BenchmarkAhmetbTwoSort 测试 go-linq (ahmetb) 库的二级排序性能
+func BenchmarkAhmetbTwoSort(b *testing.B) {
 	smallData := userList[:1000]
 	query := ahmetb.From(smallData)
 	b.ResetTimer()
@@ -436,8 +439,8 @@ func Benchmark_Ahmetb_TwoSort(b *testing.B) {
 	}
 }
 
-// Benchmark_Native_Sort_Double 测试原生 Go sort.Slice 的二级排序性能
-func Benchmark_Native_TwoSort(b *testing.B) {
+// BenchmarkNativeTwoSort 测试原生 Go sort.Slice 的二级排序性能
+func BenchmarkNativeTwoSort(b *testing.B) {
 	smallData := make([]User, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -451,8 +454,8 @@ func Benchmark_Native_TwoSort(b *testing.B) {
 	}
 }
 
-// Benchmark_Slices_Sort_Double 测试原生 Go slices.SortFunc 的二级排序性能
-func Benchmark_Slices_TwoSort(b *testing.B) {
+// BenchmarkSlicesTwoSort 测试原生 Go slices.SortFunc 的二级排序性能
+func BenchmarkSlicesTwoSort(b *testing.B) {
 	smallData := make([]User, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -466,8 +469,8 @@ func Benchmark_Slices_TwoSort(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY_ThreeSort 测试 LiveXY 库的三级排序性能 (Age -> Gender -> ID)
-func Benchmark_LiveXY_ThreeSort(b *testing.B) {
+// BenchmarkLiveXYThreeSort 测试 LiveXY 库的三级排序性能 (Age -> Gender -> ID)
+func BenchmarkLiveXYThreeSort(b *testing.B) {
 	smallData := userList[:1000]
 	q := livexy.From(smallData)
 	b.ResetTimer()
@@ -484,8 +487,8 @@ func Benchmark_LiveXY_ThreeSort(b *testing.B) {
 	}
 }
 
-// Benchmark_New_ThreeSort 测试新实现 (Query) 的三级排序性能
-func Benchmark_New_ThreeSort(b *testing.B) {
+// BenchmarkNewThreeSort 测试新实现 (Order API) 的三级排序性能
+func BenchmarkNewThreeSort(b *testing.B) {
 	smallData := userList[:1000]
 	q := livexy.From(smallData)
 	b.ResetTimer()
@@ -500,8 +503,26 @@ func Benchmark_New_ThreeSort(b *testing.B) {
 	}
 }
 
-// Benchmark_Ahmetb_ThreeSort 测试 go-linq (ahmetb) 库的三级排序性能
-func Benchmark_Ahmetb_ThreeSort(b *testing.B) {
+// BenchmarkNewThreeSort 测试新实现 (Order API) 的三级排序性能
+func BenchmarkNew2ThreeSort(b *testing.B) {
+	smallData := userList[:1000]
+	q := livexy.From(smallData)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		q.Order(func(a, b User) int {
+			if c := cmp.Compare(a.Age, b.Age); c != 0 {
+				return c
+			}
+			if c := cmp.Compare(a.Gender, b.Gender); c != 0 {
+				return c
+			}
+			return cmp.Compare(a.ID, b.ID)
+		}).ToSlice()
+	}
+}
+
+// BenchmarkAhmetbThreeSort 测试 go-linq (ahmetb) 库的三级排序性能
+func BenchmarkAhmetbThreeSort(b *testing.B) {
 	smallData := userList[:1000]
 	query := ahmetb.From(smallData)
 	b.ResetTimer()
@@ -517,8 +538,8 @@ func Benchmark_Ahmetb_ThreeSort(b *testing.B) {
 	}
 }
 
-// Benchmark_Native_ThreeSort 测试原生 Go sort.Slice 的三级排序性能
-func Benchmark_Native_ThreeSort(b *testing.B) {
+// BenchmarkNativeThreeSort 测试原生 Go sort.Slice 的三级排序性能
+func BenchmarkNativeThreeSort(b *testing.B) {
 	smallData := make([]User, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -535,8 +556,26 @@ func Benchmark_Native_ThreeSort(b *testing.B) {
 	}
 }
 
-// Benchmark_Slices_ThreeSort 测试原生 Go slices.SortFunc 的三级排序性能
-func Benchmark_Slices_ThreeSort(b *testing.B) {
+// BenchmarkNativeStableThreeSort 测试原生 Go sort.SliceStable 的三级排序性能
+func BenchmarkNativeStableThreeSort(b *testing.B) {
+	smallData := make([]User, 1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(smallData, userList[:1000])
+		sort.SliceStable(smallData, func(i, j int) bool {
+			if smallData[i].Age != smallData[j].Age {
+				return smallData[i].Age < smallData[j].Age
+			}
+			if smallData[i].Gender != smallData[j].Gender {
+				return smallData[i].Gender < smallData[j].Gender
+			}
+			return smallData[i].ID < smallData[j].ID
+		})
+	}
+}
+
+// BenchmarkSlicesSortFuncThreeSort 测试原生 Go slices.SortFunc 的三级排序性能
+func BenchmarkSlicesSortFuncThreeSort(b *testing.B) {
 	smallData := make([]User, 1000)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -553,10 +592,64 @@ func Benchmark_Slices_ThreeSort(b *testing.B) {
 	}
 }
 
+// BenchmarkSlicesSortCompareThreeSort 测试原生 Go slices.SortFunc 的三级排序性能
+func BenchmarkSlicesSortCompareThreeSort(b *testing.B) {
+	smallData := make([]User, 1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(smallData, userList[:1000])
+		slices.SortFunc(smallData, func(a, b User) int {
+			if c := cmp.Compare(a.Age, b.Age); c != 0 {
+				return c
+			}
+			if c := cmp.Compare(a.Gender, b.Gender); c != 0 {
+				return c
+			}
+			return cmp.Compare(a.ID, b.ID)
+		})
+	}
+}
+
+// BenchmarkSlicesStableFuncThreeSort 测试原生 Go slices.SortStableFunc 的三级排序性能
+func BenchmarkSlicesStableFuncThreeSort(b *testing.B) {
+	smallData := make([]User, 1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(smallData, userList[:1000])
+		slices.SortStableFunc(smallData, func(a, b User) int {
+			if a.Age != b.Age {
+				return a.Age - b.Age
+			}
+			if a.Gender != b.Gender {
+				return a.Gender - b.Gender
+			}
+			return a.ID - b.ID
+		})
+	}
+}
+
+// BenchmarkSlicesStableCompareThreeSort 测试原生 Go slices.SortStableFunc 的三级排序性能
+func BenchmarkSlicesStableCompareThreeSort(b *testing.B) {
+	smallData := make([]User, 1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(smallData, userList[:1000])
+		slices.SortStableFunc(smallData, func(a, b User) int {
+			if c := cmp.Compare(a.Age, b.Age); c != 0 {
+				return c
+			}
+			if c := cmp.Compare(a.Gender, b.Gender); c != 0 {
+				return c
+			}
+			return cmp.Compare(a.ID, b.ID)
+		})
+	}
+}
+
 // --- 基准测试: 去重 (Distinct) ---
 
-// Benchmark_LiveXY_Distinct 测试 LiveXY 库的去重性能
-func Benchmark_LiveXY_Distinct(b *testing.B) {
+// BenchmarkLiveXYDistinct 测试 LiveXY 库的去重性能
+func BenchmarkLiveXYDistinct(b *testing.B) {
 	query := livexy.From(duplicateData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -564,8 +657,8 @@ func Benchmark_LiveXY_Distinct(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY2_Distinct 测试使用 LiveXY.Distinct 的自定义键去重性能
-func Benchmark_LiveXY_Select_Distinct(b *testing.B) {
+// BenchmarkLiveXYDistinctSelect 测试 LiveXY 库的自定义键去重性能
+func BenchmarkLiveXYDistinctSelect(b *testing.B) {
 	query := livexy.From(duplicateData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -575,8 +668,8 @@ func Benchmark_LiveXY_Select_Distinct(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY3_Distinct 测试使用 LiveXY.Distinct 的自定义键去重性能
-func Benchmark_LiveXY3_Distinct(b *testing.B) {
+// BenchmarkLiveXYDistinctQuery 测试 LiveXY 库的 Query.Distinct 去重性能
+func BenchmarkLiveXYDistinctQuery(b *testing.B) {
 	query := livexy.From(duplicateData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -584,16 +677,16 @@ func Benchmark_LiveXY3_Distinct(b *testing.B) {
 	}
 }
 
-// Benchmark_Uniq_Distinct 测试使用 LiveXY.Distinct 的自定义键去重性能
-func Benchmark_Uniq_Distinct(b *testing.B) {
+// BenchmarkLiveXYUniq 测试 LiveXY 库的切片级去重性能
+func BenchmarkLiveXYUniq(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.Uniq(duplicateData)
 	}
 }
 
-// Benchmark_Ahmetb_Distinct 测试 go-linq (ahmetb) 库的去重性能
-func Benchmark_Ahmetb_Distinct(b *testing.B) {
+// BenchmarkAhmetbDistinct 测试 go-linq (ahmetb) 库的去重性能
+func BenchmarkAhmetbDistinct(b *testing.B) {
 	query := ahmetb.From(duplicateData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -602,15 +695,15 @@ func Benchmark_Ahmetb_Distinct(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Distinct 测试 lo 库的去重性能
-func Benchmark_Lo_Distinct(b *testing.B) {
+// BenchmarkLoDistinct 测试 lo 库的去重性能
+func BenchmarkLoDistinct(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = lo.Uniq(duplicateData)
 	}
 }
 
-// Benchmark_Native_Distinct 测试使用 map 实现的原生去重性能
-func Benchmark_Native_Distinct(b *testing.B) {
+// BenchmarkNativeDistinct 测试使用 map 实现的原生去重性能
+func BenchmarkNativeDistinct(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		set := make(map[int]struct{})
 		var res []int
@@ -625,8 +718,8 @@ func Benchmark_Native_Distinct(b *testing.B) {
 
 // --- 基准测试: 并集 (Union) ---
 
-// Benchmark_LiveXY_Union 测试 LiveXY 库的并集去重性能
-func Benchmark_LiveXY_Union(b *testing.B) {
+// BenchmarkLiveXYUnion 测试 LiveXY 库的并集去重性能
+func BenchmarkLiveXYUnion(b *testing.B) {
 	q1 := livexy.From(intData)
 	q2 := livexy.From(intDataOther)
 	b.ResetTimer()
@@ -635,8 +728,8 @@ func Benchmark_LiveXY_Union(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY2_Union 测试使用 LiveXY.Distinct 的自定义键去重性能
-func Benchmark_LiveXY2_Union(b *testing.B) {
+// BenchmarkLiveXYUnionSelect 测试 LiveXY 库的自定义键并集性能
+func BenchmarkLiveXYUnionSelect(b *testing.B) {
 	q1 := livexy.From(intData)
 	q2 := livexy.From(intDataOther)
 	b.ResetTimer()
@@ -647,16 +740,16 @@ func Benchmark_LiveXY2_Union(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY3_Union 测试使用 LiveXY.Union 的交集性能
-func Benchmark_LiveXY3_Union(b *testing.B) {
+// BenchmarkLiveXYSliceUnion 测试 LiveXY 库的切片级并集性能
+func BenchmarkLiveXYSliceUnion(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.SliceUnion(intData, intDataOther)
 	}
 }
 
-// Benchmark_Ahmetb_Union 测试 go-linq (ahmetb) 库的并集去重性能
-func Benchmark_Ahmetb_Union(b *testing.B) {
+// BenchmarkAhmetbUnion 测试 go-linq (ahmetb) 库的并集去重性能
+func BenchmarkAhmetbUnion(b *testing.B) {
 	q1 := ahmetb.From(intData)
 	q2 := ahmetb.From(intDataOther)
 	b.ResetTimer()
@@ -666,15 +759,15 @@ func Benchmark_Ahmetb_Union(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Union 测试 lo 库的并集去重性能
-func Benchmark_Lo_Union(b *testing.B) {
+// BenchmarkLoUnion 测试 lo 库的并集去重性能
+func BenchmarkLoUnion(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = lo.Union(intData, intDataOther)
 	}
 }
 
-// Benchmark_Native_Union 测试使用 map 实现的原生并集去重性能
-func Benchmark_Native_Union(b *testing.B) {
+// BenchmarkNativeUnion 测试使用 map 实现的原生并集去重性能
+func BenchmarkNativeUnion(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		set := make(map[int]struct{}, size)
 		var res []int
@@ -695,8 +788,8 @@ func Benchmark_Native_Union(b *testing.B) {
 
 // --- 基准测试: 包含 (Contains) ---
 
-// Benchmark_LiveXY_Contains 测试 LiveXY 库的包含查询性能 (查找末尾元素)
-func Benchmark_LiveXY_Contains(b *testing.B) {
+// BenchmarkLiveXYContains 测试 LiveXY 库的包含查询性能 (查找末尾元素)
+func BenchmarkLiveXYContains(b *testing.B) {
 	target := size - 1
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -704,8 +797,8 @@ func Benchmark_LiveXY_Contains(b *testing.B) {
 	}
 }
 
-// Benchmark_Ahmetb_Contains 测试 go-linq (ahmetb) 库的包含查询性能
-func Benchmark_Ahmetb_Contains(b *testing.B) {
+// BenchmarkAhmetbContains 测试 go-linq (ahmetb) 库的包含查询性能
+func BenchmarkAhmetbContains(b *testing.B) {
 	q := ahmetb.From(intData)
 	target := size - 1
 	b.ResetTimer()
@@ -714,8 +807,8 @@ func Benchmark_Ahmetb_Contains(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Contains 测试 lo 库的包含查询性能
-func Benchmark_Lo_Contains(b *testing.B) {
+// BenchmarkLoContains 测试 lo 库的包含查询性能
+func BenchmarkLoContains(b *testing.B) {
 	target := size - 1
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -723,8 +816,8 @@ func Benchmark_Lo_Contains(b *testing.B) {
 	}
 }
 
-// Benchmark_Native_Contains 测试原生 Go for 循环的包含查询性能
-func Benchmark_Native_Contains(b *testing.B) {
+// BenchmarkNativeContains 测试原生 Go for 循环的包含查询性能
+func BenchmarkNativeContains(b *testing.B) {
 	target := size - 1
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -741,16 +834,16 @@ func Benchmark_Native_Contains(b *testing.B) {
 
 // --- 基准测试: 是否包含全部子集 (Every) ---
 
-// Benchmark_LiveXY_Every 测试 LiveXY 库的 Every 性能
-func Benchmark_LiveXY_Every(b *testing.B) {
+// BenchmarkLiveXYEvery 测试 LiveXY 库的 Every 性能
+func BenchmarkLiveXYEvery(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.Every(intData, intSubset)
 	}
 }
 
-// Benchmark_Ahmetb_Every 测试 go-linq (ahmetb) 库的 Every 性能 (组合实现)
-func Benchmark_Ahmetb_Every(b *testing.B) {
+// BenchmarkAhmetbEvery 测试 go-linq (ahmetb) 库的 Every 性能 (组合实现)
+func BenchmarkAhmetbEvery(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = ahmetb.From(intSubset).All(func(i interface{}) bool {
@@ -759,16 +852,16 @@ func Benchmark_Ahmetb_Every(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Every 测试 lo 库的 Every 性能
-func Benchmark_Lo_Every(b *testing.B) {
+// BenchmarkLoEvery 测试 lo 库的 Every 性能
+func BenchmarkLoEvery(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = lo.Every(intData, intSubset)
 	}
 }
 
-// Benchmark_Native_Every 测试原生 Go 实现的 Every 性能
-func Benchmark_Native_Every(b *testing.B) {
+// BenchmarkNativeEvery 测试原生 Go 实现的 Every 性能
+func BenchmarkNativeEvery(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		set := make(map[int]struct{}, len(intData))
@@ -788,16 +881,16 @@ func Benchmark_Native_Every(b *testing.B) {
 
 // --- 基准测试: 是否包含子集中的任意元素 (Some) ---
 
-// Benchmark_LiveXY_Some 测试 LiveXY 库的 Some 性能
-func Benchmark_LiveXY_Some(b *testing.B) {
+// BenchmarkLiveXYSome 测试 LiveXY 库的 Some 性能
+func BenchmarkLiveXYSome(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.Some(intData, intSubset)
 	}
 }
 
-// Benchmark_Ahmetb_Some 测试 go-linq (ahmetb) 库的 Some 性能 (组合实现)
-func Benchmark_Ahmetb_Some(b *testing.B) {
+// BenchmarkAhmetbSome 测试 go-linq (ahmetb) 库的 Some 性能 (组合实现)
+func BenchmarkAhmetbSome(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = ahmetb.From(intSubset).AnyWith(func(i interface{}) bool {
@@ -806,16 +899,16 @@ func Benchmark_Ahmetb_Some(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Some 测试 lo 库的 Some 性能
-func Benchmark_Lo_Some(b *testing.B) {
+// BenchmarkLoSome 测试 lo 库的 Some 性能
+func BenchmarkLoSome(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = lo.Some(intData, intSubset)
 	}
 }
 
-// Benchmark_Native_Some 测试原生 Go 实现的 Some 性能
-func Benchmark_Native_Some(b *testing.B) {
+// BenchmarkNativeSome 测试原生 Go 实现的 Some 性能
+func BenchmarkNativeSome(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		set := make(map[int]struct{}, len(intData))
@@ -906,8 +999,8 @@ func SomeOptimized[T comparable](collection []T, subset []T) bool {
 	return false
 }
 
-// Benchmark_LiveXY_Optimized_Some 测试 LiveXY 库的 Some 性能 (优化版)
-func Benchmark_LiveXY_Optimized_Some(b *testing.B) {
+// BenchmarkLiveXYOptimizedSome 测试 LiveXY 库的 Some 性能 (优化版)
+func BenchmarkLiveXYOptimizedSome(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = SomeOptimized(intData, intSubset)
@@ -916,17 +1009,17 @@ func Benchmark_LiveXY_Optimized_Some(b *testing.B) {
 
 // --- 基准测试: 是否都不包含 (None) ---
 
-// Benchmark_LiveXY_None 测试 LiveXY 库的 None 性能
+// BenchmarkLiveXYNone 测试 LiveXY 库的 None 性能
 // None 的逻辑是：集合 A 中没有任何元素属于集合 B。
-func Benchmark_LiveXY_None(b *testing.B) {
+func BenchmarkLiveXYNone(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.None(intData, intSubset)
 	}
 }
 
-// Benchmark_Ahmetb_None 测试 go-linq (ahmetb) 库的 None 性能 (组合实现)
-func Benchmark_Ahmetb_None(b *testing.B) {
+// BenchmarkAhmetbNone 测试 go-linq (ahmetb) 库的 None 性能 (组合实现)
+func BenchmarkAhmetbNone(b *testing.B) {
 	b.ResetTimer()
 	var q = ahmetb.From(intSubset)
 	for i := 0; i < b.N; i++ {
@@ -938,16 +1031,16 @@ func Benchmark_Ahmetb_None(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_None 测试 lo 库的 None 性能
-func Benchmark_Lo_None(b *testing.B) {
+// BenchmarkLoNone 测试 lo 库的 None 性能
+func BenchmarkLoNone(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = lo.None(intData, intSubset)
 	}
 }
 
-// Benchmark_Native_None 测试原生 Go 实现的 None 性能
-func Benchmark_Native_None(b *testing.B) {
+// BenchmarkNativeNone 测试原生 Go 实现的 None 性能
+func BenchmarkNativeNone(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		set := make(map[int]struct{}, len(intData))
@@ -967,8 +1060,8 @@ func Benchmark_Native_None(b *testing.B) {
 
 // --- 基准测试: 合并 (Concat) ---
 
-// Benchmark_LiveXY_Concat 测试 LiveXY 库的合并性能
-func Benchmark_LiveXY_Concat(b *testing.B) {
+// BenchmarkLiveXYConcat 测试 LiveXY 库的合并性能
+func BenchmarkLiveXYConcat(b *testing.B) {
 	q1 := livexy.From(intData)
 	q2 := livexy.From(intDataOther)
 	b.ResetTimer()
@@ -977,16 +1070,16 @@ func Benchmark_LiveXY_Concat(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY2_Concat 测试 LiveXY 库的合并性能
-func Benchmark_LiveXY2_Concat(b *testing.B) {
+// BenchmarkLiveXYConcatSlice 测试 LiveXY 库的切片级合并性能
+func BenchmarkLiveXYConcatSlice(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.Concat(intData, intDataOther)
 	}
 }
 
-// Benchmark_Ahmetb_Concat 测试 go-linq (ahmetb) 库的合并性能
-func Benchmark_Ahmetb_Concat(b *testing.B) {
+// BenchmarkAhmetbConcat 测试 go-linq (ahmetb) 库的合并性能
+func BenchmarkAhmetbConcat(b *testing.B) {
 	q1 := ahmetb.From(intData)
 	q2 := ahmetb.From(intDataOther)
 	b.ResetTimer()
@@ -996,15 +1089,15 @@ func Benchmark_Ahmetb_Concat(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Concat 测试 lo 库的合并性能
-func Benchmark_Lo_Concat(b *testing.B) {
+// BenchmarkLoConcat 测试 lo 库的合并性能
+func BenchmarkLoConcat(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = lo.Flatten([][]int{intData, intDataOther})
 	}
 }
 
-// Benchmark_Native_Concat 测试原生 Go append 的合并性能
-func Benchmark_Native_Concat(b *testing.B) {
+// BenchmarkNativeConcat 测试原生 Go append 的合并性能
+func BenchmarkNativeConcat(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		res := make([]int, 0, len(intData)+len(intDataOther))
 		res = append(res, intData...)
@@ -1015,8 +1108,8 @@ func Benchmark_Native_Concat(b *testing.B) {
 
 // --- 基准测试: 交集 (Intersect) ---
 
-// Benchmark_LiveXY_Intersect 测试 LiveXY 库的交集性能
-func Benchmark_LiveXY_Intersect(b *testing.B) {
+// BenchmarkLiveXYIntersect 测试 LiveXY 库的交集性能
+func BenchmarkLiveXYIntersect(b *testing.B) {
 	q1 := livexy.From(intData)
 	q2 := livexy.From(intDataOther)
 	b.ResetTimer()
@@ -1025,8 +1118,8 @@ func Benchmark_LiveXY_Intersect(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY2_Intersect 测试使用 LiveXY.Distinct 的自定义键去重性能
-func Benchmark_LiveXY2_Intersect(b *testing.B) {
+// BenchmarkLiveXYIntersectSelect 测试 LiveXY 库的自定义键交集性能
+func BenchmarkLiveXYIntersectSelect(b *testing.B) {
 	q1 := livexy.From(intData)
 	q2 := livexy.From(intDataOther)
 	b.ResetTimer()
@@ -1037,16 +1130,16 @@ func Benchmark_LiveXY2_Intersect(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY3_Intersect 测试使用 LiveXY.Intersect 的交集性能
-func Benchmark_LiveXY3_Intersect(b *testing.B) {
+// BenchmarkLiveXYSliceIntersect 测试 LiveXY 库的切片级交集性能
+func BenchmarkLiveXYSliceIntersect(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.SliceIntersect(intData, intDataOther)
 	}
 }
 
-// Benchmark_Ahmetb_Intersect 测试 go-linq (ahmetb) 库的交集性能
-func Benchmark_Ahmetb_Intersect(b *testing.B) {
+// BenchmarkAhmetbIntersect 测试 go-linq (ahmetb) 库的交集性能
+func BenchmarkAhmetbIntersect(b *testing.B) {
 	q1 := ahmetb.From(intData)
 	q2 := ahmetb.From(intDataOther)
 	b.ResetTimer()
@@ -1056,15 +1149,15 @@ func Benchmark_Ahmetb_Intersect(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Intersect 测试 lo 库的交集性能
-func Benchmark_Lo_Intersect(b *testing.B) {
+// BenchmarkLoIntersect 测试 lo 库的交集性能
+func BenchmarkLoIntersect(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = lo.Intersect(intData, intDataOther)
 	}
 }
 
-// Benchmark_Native_Intersect 测试原生 Go 使用 map 的交集性能
-func Benchmark_Native_Intersect(b *testing.B) {
+// BenchmarkNativeIntersect 测试原生 Go 使用 map 的交集性能
+func BenchmarkNativeIntersect(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		set := make(map[int]struct{}, len(intData))
 		for _, v := range intData {
@@ -1082,8 +1175,8 @@ func Benchmark_Native_Intersect(b *testing.B) {
 
 // --- 基准测试: 差集 (Except) ---
 
-// Benchmark_LiveXY_Except 测试 LiveXY 库的差集性能
-func Benchmark_LiveXY_Except(b *testing.B) {
+// BenchmarkLiveXYExcept 测试 LiveXY 库的差集性能
+func BenchmarkLiveXYExcept(b *testing.B) {
 	q1 := livexy.From(intData)
 	q2 := livexy.From(intDataOther)
 	b.ResetTimer()
@@ -1092,8 +1185,8 @@ func Benchmark_LiveXY_Except(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY2_Except 测试使用 LiveXY.Distinct 的自定义键去重性能
-func Benchmark_LiveXY2_Except(b *testing.B) {
+// BenchmarkLiveXYExceptSelect 测试 LiveXY 库的自定义键差集性能
+func BenchmarkLiveXYExceptSelect(b *testing.B) {
 	q1 := livexy.From(intData)
 	q2 := livexy.From(intDataOther)
 	b.ResetTimer()
@@ -1104,16 +1197,16 @@ func Benchmark_LiveXY2_Except(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY3_Except 测试使用 LiveXY.Intersect 的交集性能
-func Benchmark_LiveXY3_Except(b *testing.B) {
+// BenchmarkLiveXYDifference 测试 LiveXY 库的切片级差集性能
+func BenchmarkLiveXYDifference(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = livexy.Difference(intData, intDataOther)
 	}
 }
 
-// Benchmark_Ahmetb_Except 测试 go-linq (ahmetb) 库的差集性能
-func Benchmark_Ahmetb_Except(b *testing.B) {
+// BenchmarkAhmetbExcept 测试 go-linq (ahmetb) 库的差集性能
+func BenchmarkAhmetbExcept(b *testing.B) {
 	q1 := ahmetb.From(intData)
 	q2 := ahmetb.From(intDataOther)
 	b.ResetTimer()
@@ -1123,16 +1216,16 @@ func Benchmark_Ahmetb_Except(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Except 测试 lo 库的差集性能 (Difference 只取左差集)
-func Benchmark_Lo_Except(b *testing.B) {
+// BenchmarkLoExcept 测试 lo 库的差集性能 (Difference 只取左差集)
+func BenchmarkLoExcept(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		left, _ := lo.Difference(intData, intDataOther)
 		_ = left
 	}
 }
 
-// Benchmark_Native_Except 测试原生 Go 实现的差集性能
-func Benchmark_Native_Except(b *testing.B) {
+// BenchmarkNativeExcept 测试原生 Go 实现的差集性能
+func BenchmarkNativeExcept(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		set := make(map[int]struct{}, len(intDataOther))
 		for _, v := range intDataOther {
@@ -1150,8 +1243,8 @@ func Benchmark_Native_Except(b *testing.B) {
 
 // --- 基准测试: 反转 (Reverse) ---
 
-// Benchmark_LiveXY_Reverse 测试 LiveXY 库的链式反转性能
-func Benchmark_LiveXY_Reverse(b *testing.B) {
+// BenchmarkLiveXYReverse 测试 LiveXY 库的链式反转性能
+func BenchmarkLiveXYReverse(b *testing.B) {
 	q := livexy.From(intData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -1159,24 +1252,25 @@ func Benchmark_LiveXY_Reverse(b *testing.B) {
 	}
 }
 
-// Benchmark_LiveXY2_Reverse 测试 LiveXY 库的静态反转性能
-func Benchmark_LiveXY2_Reverse(b *testing.B) {
+// BenchmarkLiveXYReverseSlice 测试 LiveXY 库的切片级原地反转性能（仅操作局部副本）
+func BenchmarkLiveXYReverseSlice(b *testing.B) {
+	data := append([]int(nil), intData...)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = livexy.Reverse(intData)
+		_ = livexy.Reverse(data)
 	}
 }
 
-// Benchmark_LiveXY3_Reverse 测试 LiveXY 库的静态反转性能
-func Benchmark_LiveXY3_Reverse(b *testing.B) {
+// BenchmarkLiveXYCloneReverse 测试 LiveXY 库的克隆反转性能
+func BenchmarkLiveXYCloneReverse(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.CloneReverse(intData)
 	}
 }
 
-// Benchmark_Ahmetb_Reverse 测试 go-linq (ahmetb) 库的反转性能
-func Benchmark_Ahmetb_Reverse(b *testing.B) {
+// BenchmarkAhmetbReverse 测试 go-linq (ahmetb) 库的反转性能
+func BenchmarkAhmetbReverse(b *testing.B) {
 	q := ahmetb.From(intData)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -1185,15 +1279,23 @@ func Benchmark_Ahmetb_Reverse(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Reverse 测试 lo 库的反转性能
-func Benchmark_Lo_Reverse(b *testing.B) {
+// BenchmarkLoReverse 测试 lo 库的反转性能
+func BenchmarkLoReverse(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = lo.Reverse(intData)
 	}
 }
 
-// Benchmark_Native_Reverse 测试原生 Go 实现的反转性能
-func Benchmark_Native_Reverse(b *testing.B) {
+// BenchmarkMutableReverse 测试 lo 库的原地反转性能（仅操作局部副本）
+func BenchmarkMutableReverse(b *testing.B) {
+	data := append([]int(nil), intData...)
+	for i := 0; i < b.N; i++ {
+		mutable.Reverse(data)
+	}
+}
+
+// BenchmarkNativeReverse 测试原生 Go 实现的反转性能
+func BenchmarkNativeReverse(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		res := make([]int, len(intData))
 		n := len(intData)
@@ -1204,12 +1306,11 @@ func Benchmark_Native_Reverse(b *testing.B) {
 	}
 }
 
-// Benchmark_Native_Inplace_Reverse 测试原生 Go 原地反转性能
-func Benchmark_Native_Inplace_Reverse(b *testing.B) {
-	data := make([]int, len(intData))
+// BenchmarkNativeInplaceReverse 测试原生 Go 原地反转性能（仅操作局部副本）
+func BenchmarkNativeInplaceReverse(b *testing.B) {
+	data := append([]int(nil), intData...)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		copy(data, intData) // 每次为了测试原地性能，必须先还原数据
 		n := len(data)
 		for j := 0; j < n/2; j++ {
 			data[j], data[n-1-j] = data[n-1-j], data[j]
@@ -1217,8 +1318,8 @@ func Benchmark_Native_Inplace_Reverse(b *testing.B) {
 	}
 }
 
-// Benchmark_Lo_Clone_Reverse 测试 lo 库带拷贝的反转性能 (为了公平对比)
-func Benchmark_Lo_Clone_Reverse(b *testing.B) {
+// BenchmarkLoCloneReverse 测试 lo 库带拷贝的反转性能 (为了公平对比)
+func BenchmarkLoCloneReverse(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		data := make([]int, len(intData))
 		copy(data, intData)
@@ -1228,23 +1329,31 @@ func Benchmark_Lo_Clone_Reverse(b *testing.B) {
 
 // --- 基准测试: 随机洗牌 (Shuffle) ---
 
-// Benchmark_LiveXY_Shuffle 测试 LiveXY 库的随机洗牌性能 (含拷贝)
-func Benchmark_LiveXY_Shuffle(b *testing.B) {
+// BenchmarkLiveXYShuffle 测试 LiveXY 库的随机洗牌性能 (含拷贝)
+func BenchmarkLiveXYShuffle(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = livexy.Shuffle(intData)
 	}
 }
 
-// Benchmark_Lo_Shuffle 测试 lo 库的随机洗牌性能 (原地修改)
-func Benchmark_Lo_Shuffle(b *testing.B) {
+// BenchmarkLoShuffle 测试 lo 库的随机洗牌性能（返回新切片）
+func BenchmarkLoShuffle(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = lo.Shuffle(intData)
 	}
 }
 
-// Benchmark_Native_Shuffle 测试原生 Go 实现的随机洗牌性能 (含拷贝)
-func Benchmark_Native_Shuffle(b *testing.B) {
+// BenchmarkMutableShuffle 测试 lo 库的随机洗牌性能（原地修改局部副本）
+func BenchmarkMutableShuffle(b *testing.B) {
+	data := append([]int(nil), intData...)
+	for i := 0; i < b.N; i++ {
+		mutable.Shuffle(data)
+	}
+}
+
+// BenchmarkNativeShuffle 测试原生 Go 实现的随机洗牌性能 (含拷贝)
+func BenchmarkNativeShuffle(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		res := make([]int, len(intData))
 		copy(res, intData)

@@ -1323,6 +1323,50 @@ func TestSelectAsyncCtx(t *testing.T) {
 	}
 }
 
+// TestNilContextAndInvalidWorkers 测试 nil context 与 workers<=0 的兜底逻辑
+func TestNilContextAndInvalidWorkers(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("不应 panic，实际 panic: %v", r)
+		}
+	}()
+
+	// ToChannel: nil context 应退化为 Background
+	var chRes []int
+	for v := range From([]int{1, 2, 3}).ToChannel(nil) {
+		chRes = append(chRes, v)
+	}
+	if len(chRes) != 3 {
+		t.Fatalf("ToChannel(nil) 结果数量错误: %d", len(chRes))
+	}
+
+	// ForEachParallel: workers<=0 应自动兜底为 1
+	var sum atomic.Int32
+	From([]int{1, 2, 3}).ForEachParallel(0, func(i int) {
+		sum.Add(int32(i))
+	})
+	if sum.Load() != 6 {
+		t.Fatalf("ForEachParallel(0) 结果错误: %d", sum.Load())
+	}
+
+	// SelectAsyncCtx: nil context + workers<=0 应可正常执行
+	result := SelectAsyncCtx(nil, From([]int{1, 2, 3}), 0, func(i int) int {
+		return i * 2
+	}).ToSlice()
+	if len(result) != 3 {
+		t.Fatalf("SelectAsyncCtx(nil, workers=0) 数量错误: %d", len(result))
+	}
+	seen := map[int]struct{}{}
+	for _, v := range result {
+		seen[v] = struct{}{}
+	}
+	for _, expect := range []int{2, 4, 6} {
+		if _, ok := seen[expect]; !ok {
+			t.Fatalf("SelectAsyncCtx 结果缺失: %d, 实际: %+v", expect, result)
+		}
+	}
+}
+
 // TestForEachParallelCtx 测试 ForEachParallelCtx
 func TestForEachParallelCtx(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1523,8 +1567,8 @@ func TestLazyPaths(t *testing.T) {
 // OrderedQuery 完整测试 (New Feature)
 // ============================================================================
 
-// TestOrderedQuery_Complete 测试 OrderedQuery 的排序和链式调用
-func TestOrderedQuery_Complete(t *testing.T) {
+// TestOrderedQueryComplete 测试 OrderedQuery 的排序和链式调用
+func TestOrderedQueryComplete(t *testing.T) {
 	type Person struct {
 		Name string
 		Age  int
@@ -1582,8 +1626,8 @@ func TestOrderedQuery_Complete(t *testing.T) {
 	}
 }
 
-// TestOrderedQuery_Operations 测试 OrderedQuery 的操作方法 (Take, Skip, Where...)
-func TestOrderedQuery_Operations(t *testing.T) {
+// TestOrderedQueryOperations 测试 OrderedQuery 的操作方法 (Take, Skip, Where...)
+func TestOrderedQueryOperations(t *testing.T) {
 	// 数据: [5, 1, 4, 2, 3] -> Ordered -> [1, 2, 3, 4, 5]
 	nums := []int{5, 1, 4, 2, 3}
 	q := From(nums).Order(Asc(func(i int) int { return i }))
@@ -1627,8 +1671,8 @@ func TestOrderedQuery_Operations(t *testing.T) {
 	}
 }
 
-// TestOrderedQuery_Traversal 测试 OrderedQuery 的遍历和聚合 (First, Last, ForEach)
-func TestOrderedQuery_Traversal(t *testing.T) {
+// TestOrderedQueryTraversal 测试 OrderedQuery 的遍历和聚合 (First, Last, ForEach)
+func TestOrderedQueryTraversal(t *testing.T) {
 	// 数据: [3, 1, 2] -> Ordered -> [1, 2, 3]
 	nums := []int{3, 1, 2}
 	q := From(nums).Order(Asc(func(i int) int { return i }))
@@ -1668,5 +1712,88 @@ func TestOrderedQuery_Traversal(t *testing.T) {
 	revRes := q.Reverse().ToSlice() // [3, 2, 1]
 	if revRes[0] != 3 || revRes[2] != 1 {
 		t.Errorf("Ordered Reverse 失败: %v", revRes)
+	}
+}
+
+// TestCoverage99Branches 定向覆盖低覆盖分支，目标提升总体覆盖率到 99%+
+func TestCoverage99Branches(t *testing.T) {
+	toIter := func(items ...int) Query[int] {
+		return Select(From(items), func(i int) int { return i })
+	}
+
+	// aggregate.go 分支
+	if got := From([]int{}).Last(); got != 0 {
+		t.Fatalf("Last 空序列应返回零值, got=%d", got)
+	}
+	if got := From([]int{1, 1}).SingleDefault(); got != 0 {
+		t.Fatalf("SingleDefault 多元素无默认值应返回零值, got=%d", got)
+	}
+	if got := From([]int{}).SingleDefault(); got != 0 {
+		t.Fatalf("SingleDefault 空序列无默认值应返回零值, got=%d", got)
+	}
+	if idx := IndexOf(toIter(1, 2, 3), 99); idx != -1 {
+		t.Fatalf("IndexOf iterate 未命中应为 -1, got=%d", idx)
+	}
+	if idx := From([]int{1, 2, 3}).Where(func(i int) bool { return i > 2 }).LastIndexOfWith(func(i int) bool { return i == 1 }); idx != -1 {
+		t.Fatalf("LastIndexOfWith 过滤后未命中应为 -1, got=%d", idx)
+	}
+
+	// filter.go 分支
+	From([]int{1}).Prepend(0).iterate(func(i int) bool { return i == 0 })
+	From([]int{1, 2}).Where(func(i int) bool { return i == 2 }).DefaultIfEmpty(9).iterate(func(i int) bool { return false })
+
+	// projection.go 分支
+	qfw := From([]int{1, 2, 3}).Where(func(i int) bool { return i%2 == 1 })
+	_ = GroupBy(qfw, func(i int) int { return i }).ToSlice()
+	_ = GroupBySelect(qfw, func(i int) int { return i }, func(i int) int { return i }).ToSlice()
+	UnionSelect(toIter(), From([]int{2}), func(i int) int { return i }).iterate(func(i int) bool { return false })
+	UnionSelect(toIter(), toIter(2), func(i int) int { return i }).iterate(func(i int) bool { return false })
+
+	// query.go 分支
+	FromString("ab").iterate(func(s string) bool { return false })
+	From([]int{1, 2}).Intersect(From([]int{2, 3})).iterate(func(i int) bool { return false })
+	toIter(1, 2).Intersect(toIter(2, 3)).iterate(func(i int) bool { return false })
+	count := 0
+	From([]int{1}).Union(From([]int{2})).iterate(func(i int) bool {
+		count++
+		return count < 2
+	})
+	count = 0
+	toIter(1).Union(toIter(2)).iterate(func(i int) bool {
+		count++
+		return count < 2
+	})
+
+	// set.go 分支
+	count = 0
+	UnionBy(toIter(1), From([]int{2}), func(i int) int { return i }).iterate(func(i int) bool {
+		count++
+		return count < 2
+	})
+	count = 0
+	UnionBy(toIter(1), toIter(2), func(i int) int { return i }).iterate(func(i int) bool {
+		count++
+		return count < 2
+	})
+	ExceptBy(toIter(1), toIter(2), func(i int) int { return i }).iterate(func(i int) bool { return false })
+
+	// sort.go 分支
+	OrderBy(From([]int{2, 1}), func(i int) int { return i }).iterate(func(i int) bool { return false })
+
+	// utils.go 分支
+	if !EqualBy([]int{}, []int{}, func(i int) int { return i }) {
+		t.Fatalf("EqualBy 空切片应返回 true")
+	}
+	if ok := SliceTry(func() error { return fmt.Errorf("retry") }, 1, 1); ok {
+		t.Fatalf("SliceTry 失败重试应返回 false")
+	}
+
+	// action.go 分支（nil context 回退）
+	var sum atomic.Int32
+	From([]int{1, 2, 3}).ForEachParallelCtx(nil, 1, func(i int) {
+		sum.Add(int32(i))
+	})
+	if sum.Load() != 6 {
+		t.Fatalf("ForEachParallelCtx(nil) 结果错误: %d", sum.Load())
 	}
 }

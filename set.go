@@ -6,7 +6,7 @@ func Distinct[T comparable](q Query[T]) Query[T] {
 }
 
 // DistinctBy 根据键选择器过滤重复元素
-func DistinctBy[T any, K comparable](q Query[T], selector func(T) K) Query[T] {
+func DistinctBy[T, K comparable](q Query[T], selector func(T) K) Query[T] {
 	return Query[T]{
 		iterate: func(yield func(T) bool) {
 			seen := make(map[K]struct{})
@@ -44,7 +44,7 @@ func Intersect[T comparable](q1, q2 Query[T]) Query[T] {
 }
 
 // IntersectBy 根据键选择器获取两个序列的交集
-func IntersectBy[T any, K comparable](q1, q2 Query[T], selector func(T) K) Query[T] {
+func IntersectBy[T, K comparable](q1, q2 Query[T], selector func(T) K) Query[T] {
 	return Query[T]{
 		iterate: func(yield func(T) bool) {
 			seen := make(map[K]struct{})
@@ -99,7 +99,7 @@ func Union[T comparable](q1, q2 Query[T]) Query[T] {
 }
 
 // UnionBy 根据键选择器获取两个序列的并集
-func UnionBy[T any, K comparable](q1, q2 Query[T], selector func(T) K) Query[T] {
+func UnionBy[T, K comparable](q1, q2 Query[T], selector func(T) K) Query[T] {
 	return Query[T]{
 		iterate: func(yield func(T) bool) {
 			seen := make(map[K]struct{})
@@ -161,7 +161,7 @@ func Except[T comparable](q1, q2 Query[T]) Query[T] {
 }
 
 // ExceptBy 根据键选择器获取两个序列的差集
-func ExceptBy[T any, K comparable](q1, q2 Query[T], selector func(T) K) Query[T] {
+func ExceptBy[T, K comparable](q1, q2 Query[T], selector func(T) K) Query[T] {
 	return Query[T]{
 		iterate: func(yield func(T) bool) {
 			seen := make(map[K]struct{})

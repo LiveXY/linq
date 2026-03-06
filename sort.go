@@ -11,21 +11,21 @@ func (q Query[T]) HasOrder() bool {
 }
 
 // OrderBy 指定主要排序键，按升序对序列元素进行排序
-func OrderBy[T any, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
+func OrderBy[T comparable, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
 	return orderBy(q, func(a, b T) int {
 		return cmp.Compare(key(a), key(b))
 	})
 }
 
 // OrderByDescending 指定主要排序键，按降序对序列元素进行排序
-func OrderByDescending[T any, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
+func OrderByDescending[T comparable, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
 	return orderBy(q, func(a, b T) int {
 		return cmp.Compare(key(b), key(a)) // 降序关键：b 与 a 比较
 	})
 }
 
 // ThenBy 指定次要排序键，按升序对序列元素进行后续排序
-func ThenBy[T any, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
+func ThenBy[T comparable, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
 	if !q.HasOrder() {
 		return q
 	}
@@ -36,7 +36,7 @@ func ThenBy[T any, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
 }
 
 // ThenByDescending 指定次要排序键，按降序对序列元素进行后续排序
-func ThenByDescending[T any, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
+func ThenByDescending[T comparable, K cmp.Ordered](q Query[T], key func(T) K) Query[T] {
 	if !q.HasOrder() {
 		return q
 	}
@@ -47,7 +47,7 @@ func ThenByDescending[T any, K cmp.Ordered](q Query[T], key func(T) K) Query[T] 
 }
 
 // 链式组合比较器
-func chainComparisons[T any](a, b CompareFunc[T]) CompareFunc[T] {
+func chainComparisons[T comparable](a, b CompareFunc[T]) CompareFunc[T] {
 	return func(x, y T) int {
 		if r := a(x, y); r != 0 {
 			return r
@@ -57,7 +57,7 @@ func chainComparisons[T any](a, b CompareFunc[T]) CompareFunc[T] {
 }
 
 // 核心排序执行函数
-func orderBy[T any](q Query[T], cmpFn CompareFunc[T]) Query[T] {
+func orderBy[T comparable](q Query[T], cmpFn CompareFunc[T]) Query[T] {
 	var source Query[T]
 	if q.sortSource != nil {
 		source = *q.sortSource
@@ -68,7 +68,7 @@ func orderBy[T any](q Query[T], cmpFn CompareFunc[T]) Query[T] {
 		compare: cmpFn,
 		iterate: func(yield func(T) bool) {
 			data := source.ToSlice()
-			slices.SortFunc(data, cmpFn)
+			slices.SortStableFunc(data, cmpFn)
 			for _, item := range data {
 				if !yield(item) {
 					return
@@ -81,28 +81,28 @@ func orderBy[T any](q Query[T], cmpFn CompareFunc[T]) Query[T] {
 }
 
 // OrderedQuery 包含已有的排序规则，供特定场景复用
-type OrderedQuery[T any] struct {
+type OrderedQuery[T comparable] struct {
 	Query[T]
-	compare CompareFunc[T]
+	sortCmp CompareFunc[T]
 }
 
 // Order 指定排序规则
 func (q Query[T]) Order(comparator CompareFunc[T]) OrderedQuery[T] {
 	return OrderedQuery[T]{
 		Query:   q,
-		compare: comparator,
+		sortCmp: comparator,
 	}
 }
 
 // Asc 根据键选择器生成升序比较器
-func Asc[T any, K cmp.Ordered](selector func(T) K) CompareFunc[T] {
+func Asc[T comparable, K cmp.Ordered](selector func(T) K) CompareFunc[T] {
 	return func(a, b T) int {
 		return cmp.Compare(selector(a), selector(b))
 	}
 }
 
 // Desc 根据键选择器生成降序比较器
-func Desc[T any, K cmp.Ordered](selector func(T) K) CompareFunc[T] {
+func Desc[T comparable, K cmp.Ordered](selector func(T) K) CompareFunc[T] {
 	return func(a, b T) int {
 		return cmp.Compare(selector(b), selector(a))
 	}
@@ -110,10 +110,10 @@ func Desc[T any, K cmp.Ordered](selector func(T) K) CompareFunc[T] {
 
 // Then 添加后续排序规则
 func (oq OrderedQuery[T]) Then(comparator CompareFunc[T]) OrderedQuery[T] {
-	prevCompare := oq.compare
+	prevCompare := oq.sortCmp
 	return OrderedQuery[T]{
 		Query: oq.Query,
-		compare: func(a, b T) int {
+		sortCmp: func(a, b T) int {
 			if res := prevCompare(a, b); res != 0 {
 				return res
 			}
@@ -125,7 +125,7 @@ func (oq OrderedQuery[T]) Then(comparator CompareFunc[T]) OrderedQuery[T] {
 // ToQuery 将 OrderedQuery 转换为已排序的 Query
 func (oq OrderedQuery[T]) ToQuery() Query[T] {
 	data := oq.Query.ToSlice()
-	slices.SortFunc(data, oq.compare)
+	slices.SortStableFunc(data, oq.sortCmp)
 	return From(data)
 }
 
@@ -223,10 +223,10 @@ func (oq OrderedQuery[T]) ForEachIndexed(action func(int, T) bool) {
 func (oq OrderedQuery[T]) Distinct() Query[T] {
 	return Query[T]{
 		iterate: func(yield func(T) bool) {
-			seen := make(map[any]struct{})
+			seen := make(map[T]struct{})
 			for item := range oq.ToQuery().iterate {
-				if _, ok := seen[any(item)]; !ok {
-					seen[any(item)] = struct{}{}
+				if _, ok := seen[item]; !ok {
+					seen[item] = struct{}{}
 					if !yield(item) {
 						return
 					}
@@ -240,7 +240,7 @@ func (oq OrderedQuery[T]) Distinct() Query[T] {
 func (oq OrderedQuery[T]) IndexOf(value T) int {
 	index := 0
 	for item := range oq.ToQuery().iterate {
-		if any(item) == any(value) {
+		if item == value {
 			return index
 		}
 		index++

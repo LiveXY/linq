@@ -11,17 +11,23 @@
 
 ## 如何启动测试
 
-在项目根目录下运行以下命令即可启动性能基准测试：
+在 `linq-test` 目录下运行以下命令即可启动性能基准测试：
 
 ```bash
 # 运行所有基准测试并统计内存分配
-go test -v -bench . -benchmem performance_test.go
+go test -run=^$ -bench . -benchmem ./...
 ```
 
 如果您希望只测试特定场景（例如 Where），可以使用 `-bench` 参数过滤：
 
 ```bash
-go test -v -bench Benchmark_.*_Where -benchmem performance_test.go
+go test -run=^$ -bench 'Where$' -benchmem ./...
+```
+
+建议为了稳定对比，增加重复次数与测试时长，例如：
+
+```bash
+go test -run=^$ -bench . -benchmem -count=5 -benchtime=500ms ./...
 ```
 
 ## 性能对比结果

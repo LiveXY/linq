@@ -56,7 +56,7 @@ func SliceContains[T comparable](list []T, element T) bool {
 }
 
 // ContainsBy 判断切片是否包含指定元素, 并附带条件
-func SliceContainsBy[T any](list []T, predicate func(T) bool) bool {
+func SliceContainsBy[T comparable](list []T, predicate func(T) bool) bool {
 	return slices.ContainsFunc(list, predicate)
 }
 
@@ -138,7 +138,7 @@ func Max[T cmp.Ordered](list ...T) T {
 
 // MinBy 根据选择器返回的值计算最小值
 // SliceMinBy 根据选择器返回的值计算最小值
-func SliceMinBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
+func SliceMinBy[T comparable, V Integer | Float](q Query[T], selector func(T) V) (r V) {
 	first := true
 	for item := range q.iterate {
 		n := selector(item)
@@ -153,7 +153,7 @@ func SliceMinBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) 
 }
 
 // SliceMaxBy 根据选择器返回的值计算最大值
-func SliceMaxBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) {
+func SliceMaxBy[T comparable, V Integer | Float](q Query[T], selector func(T) V) (r V) {
 	first := true
 	for item := range q.iterate {
 		n := selector(item)
@@ -168,7 +168,7 @@ func SliceMaxBy[T any, V Integer | Float](q Query[T], selector func(T) V) (r V) 
 }
 
 // SliceSumBy 根据选择器返回的值计算总和
-func SliceSumBy[T any, V Integer | Float | Complex](q Query[T], selector func(T) V) (r V) {
+func SliceSumBy[T comparable, V Integer | Float | Complex](q Query[T], selector func(T) V) (r V) {
 	for item := range q.iterate {
 		r += selector(item)
 	}
@@ -176,7 +176,7 @@ func SliceSumBy[T any, V Integer | Float | Complex](q Query[T], selector func(T)
 }
 
 // SliceAvgBy 计算平均值，兼容所有类型
-func SliceAvgBy[T any, V Integer | Float](q Query[T], selector func(T) V) float64 {
+func SliceAvgBy[T comparable, V Integer | Float](q Query[T], selector func(T) V) float64 {
 	var sum float64
 	var n int
 	for item := range q.iterate {
@@ -203,7 +203,7 @@ func Every[T comparable](list, subset []T) bool {
 	n, m := len(list), len(subset)
 	// 子集极大 (M > 100) -> 选哈希
 	// 或者list 极大且子集不极小 (N > 2000, M > 50) -> 选哈希
-	if m > 100 || n > 2000 && m > 50 {
+	if m > 100 || (n > 2000 && m > 50) {
 		return EveryBigData(list, subset)
 	}
 	// 小规模数据 (NM < 10000) -> 选线性 (无内存分配)

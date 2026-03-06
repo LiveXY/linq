@@ -6,7 +6,7 @@ import (
 )
 
 // Select 将序列中的每个元素投影到新表单
-func Select[T, V any](q Query[T], selector func(T) V) Query[V] {
+func Select[T, V comparable](q Query[T], selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func(yield func(V) bool) {
 			if q.fastSlice != nil {
@@ -31,7 +31,14 @@ func Select[T, V any](q Query[T], selector func(T) V) Query[V] {
 }
 
 // SelectAsyncCtx 并发转换元素并返回一个无序序列，若包含 panic 则终止。
-func SelectAsyncCtx[T, V any](ctx context.Context, q Query[T], workers int, selector func(T) V) Query[V] {
+func SelectAsyncCtx[T, V comparable](ctx context.Context, q Query[T], workers int, selector func(T) V) Query[V] {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if workers <= 0 {
+		workers = 1
+	}
+
 	return Query[V]{
 		iterate: func(yield func(V) bool) {
 			outCh := make(chan V)
@@ -43,7 +50,10 @@ func SelectAsyncCtx[T, V any](ctx context.Context, q Query[T], workers int, sele
 
 			// 生产者协程
 			go func() {
-				defer close(outCh)
+				defer func() {
+					wg.Wait()
+					close(outCh)
+				}()
 				sem := make(chan struct{}, workers)
 				if q.fastSlice != nil {
 					for _, item := range q.fastSlice {
@@ -77,7 +87,6 @@ func SelectAsyncCtx[T, V any](ctx context.Context, q Query[T], workers int, sele
 							}
 						}(item)
 					}
-					wg.Wait()
 					return
 				}
 				for item := range q.iterate {
@@ -108,7 +117,6 @@ func SelectAsyncCtx[T, V any](ctx context.Context, q Query[T], workers int, sele
 						}
 					}(item)
 				}
-				wg.Wait()
 			}()
 
 			// 迭代器消费者
@@ -133,9 +141,9 @@ func SelectAsyncCtx[T, V any](ctx context.Context, q Query[T], workers int, sele
 }
 
 // GroupBy 根据键选择器将元素分组
-func GroupBy[T any, K comparable](q Query[T], keySelector func(T) K) Query[KV[K, []T]] {
-	return Query[KV[K, []T]]{
-		iterate: func(yield func(KV[K, []T]) bool) {
+func GroupBy[T, K comparable](q Query[T], keySelector func(T) K) Query[*KV[K, []T]] {
+	return Query[*KV[K, []T]]{
+		iterate: func(yield func(*KV[K, []T]) bool) {
 			groups := make(map[K][]T)
 			if q.fastSlice != nil {
 				for _, item := range q.fastSlice {
@@ -152,7 +160,7 @@ func GroupBy[T any, K comparable](q Query[T], keySelector func(T) K) Query[KV[K,
 				}
 			}
 			for k, v := range groups {
-				if !yield(KV[K, []T]{Key: k, Value: v}) {
+				if !yield(&KV[K, []T]{Key: k, Value: v}) {
 					return
 				}
 			}
@@ -161,9 +169,9 @@ func GroupBy[T any, K comparable](q Query[T], keySelector func(T) K) Query[KV[K,
 }
 
 // GroupBySelect 先分组后对每组内元素做映射
-func GroupBySelect[T any, K comparable, V any](q Query[T], keySelector func(T) K, elementSelector func(T) V) Query[KV[K, []V]] {
-	return Query[KV[K, []V]]{
-		iterate: func(yield func(KV[K, []V]) bool) {
+func GroupBySelect[T, K, V comparable](q Query[T], keySelector func(T) K, elementSelector func(T) V) Query[*KV[K, []V]] {
+	return Query[*KV[K, []V]]{
+		iterate: func(yield func(*KV[K, []V]) bool) {
 			groups := make(map[K][]V)
 			if q.fastSlice != nil {
 				for _, item := range q.fastSlice {
@@ -180,7 +188,7 @@ func GroupBySelect[T any, K comparable, V any](q Query[T], keySelector func(T) K
 				}
 			}
 			for k, v := range groups {
-				if !yield(KV[K, []V]{Key: k, Value: v}) {
+				if !yield(&KV[K, []V]{Key: k, Value: v}) {
 					return
 				}
 			}
@@ -189,7 +197,7 @@ func GroupBySelect[T any, K comparable, V any](q Query[T], keySelector func(T) K
 }
 
 // ToMap 根据选择器将序列转为 Map
-func ToMap[T any, K comparable](q Query[T], keySelector func(T) K) map[K]T {
+func ToMap[T, K comparable](q Query[T], keySelector func(T) K) map[K]T {
 	m := make(map[K]T, q.capacity)
 	if q.fastSlice != nil {
 		for _, item := range q.fastSlice {
@@ -207,7 +215,7 @@ func ToMap[T any, K comparable](q Query[T], keySelector func(T) K) map[K]T {
 }
 
 // ToMapSelect 根据键选择器和值选择器转换序列
-func ToMapSelect[T any, K comparable, V any](q Query[T], keySelector func(T) K, valueSelector func(T) V) map[K]V {
+func ToMapSelect[T, K, V comparable](q Query[T], keySelector func(T) K, valueSelector func(T) V) map[K]V {
 	m := make(map[K]V, q.capacity)
 	if q.fastSlice != nil {
 		for _, item := range q.fastSlice {
@@ -272,7 +280,7 @@ func WhereSelect[T, V comparable](q Query[T], selector func(T) (V, bool)) Query[
 }
 
 // DistinctSelect 映射并去重
-func DistinctSelect[T any, V comparable](q Query[T], selector func(T) V) Query[V] {
+func DistinctSelect[T, V comparable](q Query[T], selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func(yield func(V) bool) {
 			seen := make(map[V]struct{})
@@ -306,7 +314,7 @@ func DistinctSelect[T any, V comparable](q Query[T], selector func(T) V) Query[V
 }
 
 // UnionSelect 映射并合并去重
-func UnionSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+func UnionSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func(yield func(V) bool) {
 			seen := make(map[V]struct{})
@@ -363,7 +371,7 @@ func UnionSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Query[
 }
 
 // IntersectSelect 映射并取交集去重
-func IntersectSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+func IntersectSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func(yield func(V) bool) {
 			seen := make(map[V]struct{})
@@ -404,7 +412,7 @@ func IntersectSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Qu
 }
 
 // ExceptSelect 映射并取差集去重
-func ExceptSelect[T any, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
+func ExceptSelect[T, V comparable](q, q2 Query[T], selector func(T) V) Query[V] {
 	return Query[V]{
 		iterate: func(yield func(V) bool) {
 			seen := make(map[V]struct{})

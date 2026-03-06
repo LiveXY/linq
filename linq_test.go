@@ -3,6 +3,7 @@
 package linq
 
 import (
+	"cmp"
 	"fmt"
 	"sync"
 	"testing"
@@ -85,6 +86,21 @@ func TestOrder2(t *testing.T) {
 	out := From(members).
 		Order(Desc(func(m *BMember) int8 { return m.Sex })).
 		Then(Asc(func(m *BMember) int { return m.Age })).
+		ToSlice()
+	for _, v := range out {
+		fmt.Printf("%+v \n", v)
+	}
+}
+
+// TestOrder3 测试排序功能 (OrderBy, ThenBy)
+func TestOrder3(t *testing.T) {
+	out := From(members).
+		Order(func(a, b *BMember) int {
+			if c := cmp.Compare(b.Sex, a.Sex); c != 0 {
+				return c
+			}
+			return cmp.Compare(a.Age, b.Age)
+		}).
 		ToSlice()
 	for _, v := range out {
 		fmt.Printf("%+v \n", v)
@@ -185,6 +201,7 @@ func TestMinMaxBy(t *testing.T) {
 	nums2 := []int{5, 0, 2}
 	min2 := MinBy(From(nums2), func(i int) int { return i })
 	if min2 != 0 {
+		t.Errorf("期望最小值 0，实际得到 %d", min2)
 	}
 }
 

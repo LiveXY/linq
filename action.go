@@ -55,6 +55,13 @@ func (q Query[T]) ForEachIndexed(action func(int, T) bool) {
 
 // ForEachParallelCtx 支持 Context 取消的并发遍历执行器（不保证顺序）
 func (q Query[T]) ForEachParallelCtx(ctx context.Context, workers int, action func(T)) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if workers <= 0 {
+		workers = 1
+	}
+
 	type token struct{}
 	sem := make(chan token, workers)
 	var wg sync.WaitGroup
@@ -156,7 +163,7 @@ func (q Query[T]) ForEachParallel(workers int, action func(T)) {
 }
 
 // MinBy 根据选择器返回最小值
-func MinBy[T any, R cmp.Ordered](q Query[T], selector func(T) R) T {
+func MinBy[T comparable, R cmp.Ordered](q Query[T], selector func(T) R) T {
 	if q.fastSlice != nil {
 		var min T
 		var minR R
@@ -189,7 +196,7 @@ func MinBy[T any, R cmp.Ordered](q Query[T], selector func(T) R) T {
 }
 
 // MaxBy 根据选择器返回最大值
-func MaxBy[T any, R cmp.Ordered](q Query[T], selector func(T) R) T {
+func MaxBy[T comparable, R cmp.Ordered](q Query[T], selector func(T) R) T {
 	if q.fastSlice != nil {
 		var max T
 		var maxR R

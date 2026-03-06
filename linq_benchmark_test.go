@@ -486,8 +486,8 @@ func BenchmarkTerminalOps(b *testing.B) {
 	}
 }
 
-// BenchmarkOrderedQuery_Sort 基准测试：新版高性能排序 (Single)
-func BenchmarkOrderedQuery_Sort(b *testing.B) {
+// BenchmarkOrderedQuerySort 基准测试：新版高性能排序 (Single)
+func BenchmarkOrderedQuerySort(b *testing.B) {
 	data := makeRange(0, 1000)
 	// 乱序
 	for i := 0; i < len(data)/2; i++ {
@@ -500,8 +500,8 @@ func BenchmarkOrderedQuery_Sort(b *testing.B) {
 	}
 }
 
-// BenchmarkOrderedQuery_Then 基准测试：新版高性能多级排序 (Then)
-func BenchmarkOrderedQuery_Then(b *testing.B) {
+// BenchmarkOrderedQueryThen 基准测试：新版高性能多级排序 (Then)
+func BenchmarkOrderedQueryThen(b *testing.B) {
 	data := makeRange(0, 1000)
 	q := From(data)
 	b.ResetTimer()
@@ -512,8 +512,8 @@ func BenchmarkOrderedQuery_Then(b *testing.B) {
 	}
 }
 
-// BenchmarkOrderedQuery_Operations 基准测试：排序后的操作 (Take, Where)
-func BenchmarkOrderedQuery_Operations(b *testing.B) {
+// BenchmarkOrderedQueryOperations 基准测试：排序后的操作 (Take, Where)
+func BenchmarkOrderedQueryOperations(b *testing.B) {
 	data := makeRange(0, 1000)
 	q := From(data)
 	b.ResetTimer()
@@ -526,8 +526,8 @@ func BenchmarkOrderedQuery_Operations(b *testing.B) {
 	}
 }
 
-// BenchmarkOrderedQuery_First 基准测试：排序后取第一个 (O(N) 优化验证)
-func BenchmarkOrderedQuery_First(b *testing.B) {
+// BenchmarkOrderedQueryFirst 基准测试：排序后取第一个 (O(N) 优化验证)
+func BenchmarkOrderedQueryFirst(b *testing.B) {
 	data := makeRange(0, 10000) // 较大数据量以突显 O(N) vs O(N log N) 差异
 	for i := 0; i < len(data)/2; i++ {
 		data[i], data[len(data)-1-i] = data[len(data)-1-i], data[i]
@@ -539,8 +539,8 @@ func BenchmarkOrderedQuery_First(b *testing.B) {
 	}
 }
 
-// BenchmarkOrderedQuery_Reverse 基准测试：排序后反转 (Zero-Allocation 验证)
-func BenchmarkOrderedQuery_Reverse(b *testing.B) {
+// BenchmarkOrderedQueryReverse 基准测试：排序后反转 (Zero-Allocation 验证)
+func BenchmarkOrderedQueryReverse(b *testing.B) {
 	data := makeRange(0, 1000)
 	q := From(data)
 	b.ResetTimer()

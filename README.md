@@ -1,200 +1,328 @@
-# High-performance generic LINQ in Go
+# LINQ for Go — 高性能泛型查询库
 
-使用方法:
-```
-go get github.com/LiveXY/linq
-```
+[![Go 1.24+](https://img.shields.io/badge/Go-1.24%2B-00ADD8?style=flat&logo=go)](https://go.dev)
 
-测试代码:
-```
-package test
+基于 Go 1.24+ 泛型与 `iter.Seq` 迭代器协议的 LINQ 风格查询库，提供 **零分配快速路径 (fastSlice)** 优化，兼顾链式调用的开发体验与极致性能。
 
-import (
-	"fmt"
-	"testing"
+## 安装
 
-	"github.com/livexy/linq"
-)
-
-type BMember struct {
-	Name string
-	ID   int64
-	Age  int
-	Sex  int8
-}
-type SMember struct {
-	Name string
-	ID   int64
-}
-
-var members = []*BMember{
-	{ID: 1, Name: "张三", Sex: 1, Age: 28},
-	{ID: 2, Name: "李四", Sex: 2, Age: 28},
-	{ID: 3, Name: "王五", Sex: 1, Age: 29},
-	{ID: 4, Name: "老六", Sex: 2, Age: 29},
-}
-
-func TestSum(t *testing.T) {
-	fmt.Printf("Sum Age: %+v \n", linq.From(members).SumIntBy(func(m *BMember) int { return m.Age }))
-	fmt.Printf("Avg Age: %+v \n", linq.From(members).AvgIntBy(func(m *BMember) int { return m.Age }))
-	fmt.Printf("Sum Age: %+v \n", linq.SumBy(linq.From(members), func(m *BMember) int { return m.Age }))
-	fmt.Printf("Min Age: %+v \n", linq.MinBy(linq.From(members), func(m *BMember) int { return m.Age }))
-	fmt.Printf("Max Age: %+v \n", linq.MaxBy(linq.From(members), func(m *BMember) int { return m.Age }))
-}
-func TestPage(t *testing.T) {
-	page, pageSize := 1, 3
-	out1 := linq.From(members).Skip((page - 1) * pageSize).Take(pageSize).ToSlice()
-	for _, v := range out1 {
-		fmt.Printf("%d %+v \n", page, v)
-	}
-	page = 2
-	out1 = linq.From(members).Page(page, pageSize).ToSlice()
-	for _, v := range out1 {
-		fmt.Printf("%d %+v \n", page, v)
-	}
-}
-func TestUnion(t *testing.T) {
-	out := linq.From(members).Union(linq.From(members)).ToSlice()
-	for _, v := range out {
-		fmt.Printf("%+v \n", v)
-	}
-}
-
-func TestOrder(t *testing.T) {
-	query := linq.From(members)
-	query = linq.OrderByDescending(query, func(m *BMember) int8 { return m.Sex })
-	query = linq.ThenBy(query, func(m *BMember) int { return m.Age })
-	out4 := query.ToSlice()
-	for _, v := range out4 {
-		fmt.Printf("%+v \n", v)
-	}
-}
-
-func TestFrom(t *testing.T) {
-	out := linq.From(members).
-		Where(func(m *BMember) bool { return m.Age < 29 }).
-		Where(func(m *BMember) bool { return m.Sex < 29 }).
-		ToSlice()
-	for _, v := range out {
-		fmt.Printf("%+v \n", v)
-	}
-	out2 := linq.Select(
-		linq.From(out),
-		func(m *BMember) *SMember { return &SMember{ID: m.ID, Name: m.Name} },
-	).ToSlice()
-	for _, v := range out2 {
-		fmt.Printf("%+v \n", v)
-	}
-	out3 := linq.GroupBy(
-		linq.From(members),
-		func(m *BMember) int8 { return m.Sex },
-	).ToSlice()
-	for _, v := range out3 {
-		fmt.Printf("%+v \n", v)
-	}
-	out4 := linq.GroupBySelect(
-		linq.From(members),
-		func(m *BMember) int8 { return m.Sex },
-		func(m *BMember) *BMember { return m },
-	).ToSlice()
-	for _, v := range out4 {
-		fmt.Printf("%+v \n", v)
-	}
-}
-
-func TestFilter(t *testing.T) {
-	out2 := linq.Filter(
-		linq.From(members),
-		func(m *BMember) (*SMember, bool) { return nil, false },
-	).ToSlice()
-	for _, v := range out2 {
-		fmt.Printf("%+v \n", v)
-	}
-}
-func TestHasOrder(t *testing.T) {
-	query := linq.From(members).
-		Where(func(m *BMember) bool { return m.Age < 29 }).
-		Where(func(m *BMember) bool { return m.Sex < 29 })
-	fmt.Printf("%+v \n", query.HasOrder())
-	query = linq.OrderByDescending(query, func(m *BMember) int8 { return m.Sex })
-	fmt.Printf("%+v \n", query.HasOrder())
-}
-
-func TestFirst(t *testing.T) {
-	fmt.Println(1, linq.From([]*BMember{}).Where(func(m *BMember) bool { return m.Age < 29 }).DefaultIfEmpty(&BMember{}).First())
-	fmt.Println(2, linq.From([]*BMember{}).Where(func(m *BMember) bool { return m.Age < 29 }).First())
-}
-
+```bash
+go get github.com/livexy/linq
 ```
 
-## 性能测试 (Performance Benchmark)
+## 核心设计
 
-基于 Apple M4 Pro (macOS/arm64) 的测试结果：
+```
+┌─────────────┐
+│  数据源       │  From / FromChannel / FromString / FromMap / Range / Repeat / Empty
+└──────┬──────┘
+       ▼
+┌─────────────┐
+│  Query[T]    │  惰性求值核心结构体
+│  ├ fastSlice │  切片快速路径（零迭代器开销）
+│  ├ fastWhere │  Where 条件融合（避免多层闭包）
+│  └ iterate   │  通用 iter.Seq[T] 迭代器
+└──────┬──────┘
+       ▼
+┌─────────────┐
+│  链式操作     │  Where / Select / OrderBy / GroupBy / Distinct / Union / ...
+└──────┬──────┘
+       ▼
+┌─────────────┐
+│  终结操作     │  ToSlice / First / Count / Sum / ForEach / ToChannel / ...
+└─────────────┘
+```
 
-| 测试场景 (Benchmark)   | 单次耗时 (ns/op) | 内存 (B/op) | 分配次数 (allocs/op) | 说明 |
-|-----------------------|-----------------|-------------|---------------------|------|
-| `FromString`          | **7,757**       | **56**      | **2**               | **零拷贝**字符串遍历，内存开销极低 |
-| `MinBy`               | 16,396          | 72          | 2                   | 流式处理，极低内存占用 |
-| `Where` (Filter)      | 26,303          | 128,352     | 19                  | 10,000 元素过滤 |
-| `Union`               | 38,573          | 90,648      | 21                  | 集合合并优化 |
-| `FromSlice`           | 45,833          | 357,697     | 21                  | 10,000 元素切片转换 |
-| `Select` (Map)        | 45,879          | 357,729     | 22                  | 10,000 元素映射 |
-| `Sort`                | 10,760          | 50,712      | 32                  | 1,000 元素排序 |
-| `GroupBy`             | 146,036         | 224,864     | 831                 | 10,000 元素确定性分组 |
+- **惰性求值**：中间操作不会立即执行，直到终结操作触发遍历
+- **fastSlice 优化**：`From(slice)` 创建的查询保留底层切片引用，Skip/Take 直接切片运算，Where 条件融合避免多层闭包
+- **iter.Seq 协议**：完全兼容 Go 1.23+ 的 `for range` 迭代器
 
-> **Highlight**: `FromString` 采用了 UTF-8 解码优化，避免了全量 `rune` 数组转换，性能与内存表现卓越。
+## API 速览
 
-测试命令: `go test -bench=. -benchmem`
+### 创建查询
 
-## 高并发场景优化 (High Concurrency Optimization)
+| 函数 | 说明 |
+|------|------|
+| `From([]T)` | 从切片创建（启用 fastSlice 优化） |
+| `FromChannel(<-chan T)` | 从只读 Channel 创建 |
+| `FromString(string)` | 按 UTF-8 字符创建（零拷贝优化） |
+| `FromMap(map[K]V)` | 从 Map 创建，元素为 `KV[K, V]` |
+| `Range(start, count)` | 创建整数序列 |
+| `Repeat(element, count)` | 创建重复元素序列 |
+| `Empty[T]()` | 创建空查询 |
 
-本库针对高并发场景进行了深度优化，提供以下特性：
+### 过滤
 
-### 🚀 核心特性
+| 方法 | 说明 |
+|------|------|
+| `.Where(predicate)` | 过滤元素（支持条件融合） |
+| `.Skip(n)` | 跳过前 N 个元素 |
+| `.Take(n)` | 获取前 N 个元素 |
+| `.TakeWhile(predicate)` | 连续获取满足条件的元素 |
+| `.SkipWhile(predicate)` | 跳过连续满足条件的元素 |
+| `.Page(page, pageSize)` | 分页查询 |
+| `.DefaultIfEmpty(val)` | 空序列返回默认值 |
+| `.Append(item)` | 在末尾追加元素 |
+| `.Prepend(item)` | 在开头追加元素 |
+| `.Concat(q2)` | 连接两个序列 |
 
-#### 1. BufferPool - 切片复用，降低 GC 压力
+### 投影与变换
+
+| 函数 | 说明 |
+|------|------|
+| `Select(q, selector)` | 映射每个元素到新类型 |
+| `SelectAsync(q, workers, selector)` | 并发映射（无序） |
+| `SelectAsyncCtx(ctx, q, workers, selector)` | 并发映射（支持取消） |
+| `WhereSelect(q, selector)` | 过滤 + 映射合一 |
+| `GroupBy(q, keySelector)` | 按键分组 |
+| `GroupBySelect(q, keySelector, elementSelector)` | 分组后映射 |
+| `ToMap(q, keySelector)` | 转为 Map |
+| `ToMapSelect(q, keySelector, valueSelector)` | 转为 Map（自定义值） |
+
+### 集合操作
+
+| 函数/方法 | 说明 |
+|-----------|------|
+| `Distinct(q)` / `.Distinct()` | 去重 |
+| `DistinctBy(q, selector)` | 按键去重 |
+| `Union(q1, q2)` / `.Union(q2)` | 并集 |
+| `UnionBy(q1, q2, selector)` | 按键并集 |
+| `Intersect(q1, q2)` / `.Intersect(q2)` | 交集 |
+| `IntersectBy(q1, q2, selector)` | 按键交集 |
+| `Except(q1, q2)` / `.Except(q2)` | 差集 |
+| `ExceptBy(q1, q2, selector)` | 按键差集 |
+| `DistinctSelect(q, selector)` | 映射 + 去重 |
+| `UnionSelect(q, q2, selector)` | 映射 + 并集 |
+| `IntersectSelect(q, q2, selector)` | 映射 + 交集 |
+| `ExceptSelect(q, q2, selector)` | 映射 + 差集 |
+
+### 排序
+
+| 函数/方法 | 说明 |
+|-----------|------|
+| `OrderBy(q, key)` | 升序排序 |
+| `OrderByDescending(q, key)` | 降序排序 |
+| `ThenBy(q, key)` | 次要升序排序 |
+| `ThenByDescending(q, key)` | 次要降序排序 |
+| `.Order(comparator)` | 自定义排序规则 |
+| `.Then(comparator)` | 追加排序规则 |
+| `Asc(selector)` | 生成升序比较器 |
+| `Desc(selector)` | 生成降序比较器 |
+| `.HasOrder()` | 判断是否已定义排序 |
+| `.Reverse()` | 反转序列 |
+
+### 聚合与元素访问
+
+| 函数/方法 | 说明 |
+|-----------|------|
+| `.Count()` / `.CountWith(predicate)` | 计数 |
+| `.Any()` / `.AnyWith(predicate)` | 是否存在元素 |
+| `.All(predicate)` | 是否全部满足条件 |
+| `Sum(q)` / `SumBy(q, selector)` | 求和 |
+| `Average(q)` / `AverageBy(q, selector)` | 求平均值 |
+| `MinBy(q, selector)` / `MaxBy(q, selector)` | 按选择器取最值（返回元素） |
+| `Contains(q, value)` | 是否包含指定元素 |
+| `IndexOf(q, value)` / `LastIndexOf(q, value)` | 查找索引 |
+| `.IndexOfWith(predicate)` / `.LastIndexOfWith(predicate)` | 按条件查找索引 |
+| `.First()` / `.FirstWith(predicate)` | 第一个元素 |
+| `.Last()` / `.LastWith(predicate)` | 最后一个元素 |
+| `.FirstDefault(defaultValue...)` / `.LastDefault(defaultValue...)` | 带默认值的元素访问 |
+| `.Single()` / `.SingleWith(predicate)` / `.SingleDefault(defaultValue...)` | 唯一元素 |
+
+**强类型求和/平均代理**（方法链式调用）：
+
 ```go
-pool := linq.NewBufferPool[int]()
-
-// 获取复用的 buffer
-buf := pool.Get(1000)
-result := linq.From(data).Where(filter).AppendTo(buf)
-
-// 使用完后归还
-defer pool.Put(result[:0])
+.SumIntBy(selector)    .SumInt64By(selector)   .SumFloat64By(selector)
+.AvgBy(selector)       .AvgIntBy(selector)     .AvgInt64By(selector)
+// 以及 int8/int16/int32/uint/uint8/uint16/uint32/uint64/float32 全覆盖
 ```
 
-#### 2. Comparable 类型优化 - 避免装箱，性能提升 42%
-```go
-// ✅ 推荐：使用优化版本
-result := linq.DistinctComparable(linq.From(numbers)).ToSlice()
+### 遍历与并发
 
-// ❌ 避免：会产生装箱开销
-result := linq.From(numbers).Distinct().ToSlice()
+| 方法 | 说明 |
+|------|------|
+| `.ForEach(action)` | 遍历（返回 false 中断） |
+| `.ForEachIndexed(action)` | 带索引遍历 |
+| `.ForEachParallel(workers, action)` | 并发遍历 |
+| `.ForEachParallelCtx(ctx, workers, action)` | 并发遍历（支持 Context 取消） |
+
+### 输出
+
+| 方法 | 说明 |
+|------|------|
+| `.ToSlice()` | 收集为切片 |
+| `.Seq()` | 返回 `iter.Seq[T]` 迭代器 |
+| `.ToChannel(ctx)` | 收集为 Channel |
+| `.AppendTo(dest)` | 追加到已有切片 |
+| `.ToMapSlice(selector)` | 转为 `[]map[string]T` |
+
+### 切片工具函数 (utils.go)
+
+独立于 `Query` 的直接切片操作：
+
+| 函数 | 说明 |
+|------|------|
+| `Map(list, selector)` / `MapIndexed(list, selector)` | 映射 |
+| `Where(list, predicate)` / `WhereIndexed(list, predicate)` | 过滤 |
+| `Uniq(list)` | 去重 |
+| `SliceContains(list, element)` / `SliceContainsBy(list, pred)` | 包含判断 |
+| `SliceIndexOf(list, element)` / `SliceLastIndexOf(list, element)` | 索引查找 |
+| `Reverse(list)` / `CloneReverse(list)` | 反转（原地/克隆） |
+| `Min(list...)` / `Max(list...)` | 最值 |
+| `SliceMinBy(q, selector)` / `SliceMaxBy(q, selector)` | 按选择器取最值 |
+| `SliceSumBy(q, selector)` / `SliceAvgBy(q, selector)` | 按选择器求和/平均 |
+| `SliceSum(list)` | 切片求和 |
+| `Every(list, subset)` / `Some(list, subset)` / `None(list, subset)` | 集合关系判断 |
+| `SliceIntersect(a, b)` / `SliceUnion(lists...)` / `Difference(a, b)` | 集合运算 |
+| `Without(list, exclude...)` / `WithoutIndex(list, index...)` | 移除元素 |
+| `WithoutEmpty(list)` / `WithoutLEZero(list)` | 移除空值/非正值 |
+| `Equal(a, b...)` / `EqualBy(a, b, selector)` | 列表比较 |
+| `Rand(list, count)` / `Shuffle(list)` | 随机选取/打乱 |
+| `Default(v, d...)` / `IsEmpty(v)` / `IsNotEmpty(v)` / `SliceEmpty[T]()` | 零值相关 |
+| `IF(cond, suc, fail)` | 三目运算 |
+| `Concat(lists...)` | 合并多个切片 |
+| `SliceTry(callback, nums...)` / `TryCatch(callback, catch)` | 异常处理 |
+| `Try(f)` | 安全执行（返回值 + 错误） |
+
+## 使用示例
+
+### 基础查询链
+
+```go
+import "github.com/livexy/linq"
+
+type Member struct {
+    Name string
+    ID   int64
+    Age  int
+    Sex  int8
+}
+
+members := []*Member{
+    {ID: 1, Name: "张三", Sex: 1, Age: 28},
+    {ID: 2, Name: "李四", Sex: 2, Age: 28},
+    {ID: 3, Name: "王五", Sex: 1, Age: 29},
+    {ID: 4, Name: "老六", Sex: 2, Age: 29},
+}
+
+// 过滤 + 映射
+result := linq.Select(
+    linq.From(members).Where(func(m *Member) bool { return m.Age < 29 }),
+    func(m *Member) string { return m.Name },
+).ToSlice()
+// → ["张三", "李四"]
 ```
 
-**性能对比**（10,000 元素）：
-- `DistinctComparable`: 68,812 ns/op, 99,768 B/op, 37 allocs/op
-- `Distinct`: 119,023 ns/op, 140,280 B/op, 781 allocs/op
-- **提升**: 42% 更快，分配次数减少 95%
+### 聚合运算
 
-#### 3. 并发处理 - 内置 Panic 恢复
 ```go
-// ForEachParallel - 并发执行，自动恢复 panic
-linq.From(items).ForEachParallel(10, func(item Item) {
-    processItem(item) // 即使 panic 也不会影响其他 worker
-})
+// 求和
+total := linq.From(members).SumIntBy(func(m *Member) int { return m.Age })
+// → 114
 
-// SelectAsync - 并发转换，支持提前退出
-result := linq.SelectAsync(query, 5, expensiveTransform).
-    Take(100).
+// 平均值
+avg := linq.From(members).AvgIntBy(func(m *Member) int { return m.Age })
+// → 28.5
+
+// 最值
+youngest := linq.MinBy(linq.From(members), func(m *Member) int { return m.Age })
+oldest := linq.MaxBy(linq.From(members), func(m *Member) int { return m.Age })
+```
+
+### 排序
+
+```go
+// 多字段排序：先按性别降序，再按年龄升序
+query := linq.From(members)
+query = linq.OrderByDescending(query, func(m *Member) int8 { return m.Sex })
+query = linq.ThenBy(query, func(m *Member) int { return m.Age })
+sorted := query.ToSlice()
+
+// 或使用 Order + Then 链式排序
+sorted2 := linq.From(members).
+    Order(linq.Desc(func(m *Member) int8 { return m.Sex })).
+    Then(linq.Asc(func(m *Member) int { return m.Age })).
     ToSlice()
 ```
 
-### ⚠️ 重要说明
+### 分页
 
-- **Goroutine 安全**: 所有并发方法都已修复 goroutine 泄漏问题
-- **Panic 隔离**: `ForEachParallel` 和 `SelectAsync` 内置 panic 恢复机制
-- **内存优化**: 使用 `BufferPool` 可降低 60% 的 GC 压力
+```go
+// 第2页，每页3条
+page2 := linq.From(members).Page(2, 3).ToSlice()
+```
 
-详细优化报告请查看 [CONCURRENT_OPTIMIZATION.md](./CONCURRENT_OPTIMIZATION.md)
+### 分组
+
+```go
+// 按性别分组
+groups := linq.GroupBy(
+    linq.From(members),
+    func(m *Member) int8 { return m.Sex },
+).ToSlice()
+// → [{Key:1, Value:[张三, 王五]}, {Key:2, Value:[李四, 老六]}]
+```
+
+### 集合操作
+
+```go
+a := linq.From([]int{1, 2, 3, 4})
+b := linq.From([]int{3, 4, 5, 6})
+
+union := a.Union(b).ToSlice()        // → [1, 2, 3, 4, 5, 6]
+inter := a.Intersect(b).ToSlice()    // → [3, 4]
+diff := a.Except(b).ToSlice()        // → [1, 2]
+```
+
+### 并发处理
+
+```go
+// 并发映射
+results := linq.SelectAsync(
+    linq.From(urls),
+    8,  // 8 个并发 worker
+    func(url string) Response { return fetch(url) },
+).ToSlice()
+
+// 并发遍历（支持取消）
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+linq.From(tasks).ForEachParallelCtx(ctx, 4, func(task Task) {
+    process(task)
+})
+```
+
+### 迭代器协议
+
+```go
+// 直接在 for range 中使用
+for item := range linq.From(members).Where(func(m *Member) bool { return m.Age > 28 }).Seq() {
+    fmt.Println(item.Name)
+}
+```
+
+## 性能测试
+
+基于 Apple M4 Pro (macOS/arm64) 的测试结果：
+
+| 测试场景 | 单次耗时 (ns/op) | 内存 (B/op) | 分配次数 (allocs/op) | 说明 |
+|---------|-----------------|-------------|---------------------|------|
+| `FromString` | **7,757** | **56** | **2** | **零拷贝** UTF-8 解码，内存开销极低 |
+| `MinBy` | 16,396 | 72 | 2 | 流式处理，单遍扫描 |
+| `Where` | 26,303 | 128,352 | 19 | 10,000 元素过滤 |
+| `Union` | 38,573 | 90,648 | 21 | 集合合并（哈希去重） |
+| `FromSlice` | 45,833 | 357,697 | 21 | 10,000 元素切片转换 |
+| `Select` | 45,879 | 357,729 | 22 | 10,000 元素映射 |
+| `Sort` | 10,760 | 50,712 | 32 | 1,000 元素排序 |
+| `GroupBy` | 146,036 | 224,864 | 831 | 10,000 元素确定性分组 |
+
+> **亮点**：`FromString` 采用 UTF-8 解码优化，避免全量 `rune` 数组转换；`Where` 条件融合机制避免多层闭包堆叠。
+
+测试命令：
+```bash
+go test -bench=. -benchmem
+```
+
+## 许可证
+
+MIT License
