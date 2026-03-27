@@ -8,11 +8,21 @@ import (
 
 // SliceMap 将序列中的每个元素转换为新的对象
 func SliceMap[T, V any](list []T, selector func(T) V) []V {
-	return SliceMapIndexed(list, func(item T, _ int) V { return selector(item) })
+	if len(list) == 0 {
+		return []V{}
+	}
+	result := make([]V, len(list))
+	for i := range list {
+		result[i] = selector(list[i])
+	}
+	return result
 }
 
 // SliceMapIndexed 将序列中的每个元素转换为新的对象
 func SliceMapIndexed[T, V any](list []T, selector func(T, int) V) []V {
+	if len(list) == 0 {
+		return []V{}
+	}
 	result := make([]V, len(list))
 	for i := range list {
 		result[i] = selector(list[i], i)
@@ -22,15 +32,41 @@ func SliceMapIndexed[T, V any](list []T, selector func(T, int) V) []V {
 
 // SliceWhere 返回满足指定条件的元素序列
 func SliceWhere[T any](list []T, predicate func(item T) bool) []T {
-	return SliceWhereIndexed(list, func(item T, _ int) bool { return predicate(item) })
+	if len(list) == 0 {
+		return []T{}
+	}
+
+	// 估算结果切片大小以减少内存重分配
+	capEst := len(list) / 2
+	if capEst == 0 {
+		capEst = 1
+	}
+	result := make([]T, 0, capEst)
+
+	for _, item := range list {
+		if predicate(item) {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // SliceWhereIndexed 返回满足指定条件的元素序列
 func SliceWhereIndexed[T any](list []T, predicate func(T, int) bool) []T {
-	result := make([]T, 0, len(list))
-	for i := range list {
-		if predicate(list[i], i) {
-			result = append(result, list[i])
+	if len(list) == 0 {
+		return []T{}
+	}
+
+	// 估算结果切片大小以减少内存重分配
+	capEst := len(list) / 2
+	if capEst == 0 {
+		capEst = 1
+	}
+	result := make([]T, 0, capEst)
+
+	for i, item := range list {
+		if predicate(item, i) {
+			result = append(result, item)
 		}
 	}
 	return result
@@ -38,14 +74,17 @@ func SliceWhereIndexed[T any](list []T, predicate func(T, int) bool) []T {
 
 // SliceUniq 返回去重后的切片
 func SliceUniq[T comparable](list []T) []T {
-	result := []T{}
-	seen := map[T]struct{}{}
+	if len(list) <= 1 {
+		return list
+	}
+
+	result := make([]T, 0, len(list)/2+1) // 预估一半大小以节省空间
+	seen := make(map[T]struct{}, len(list)/2+1)
 	for _, e := range list {
-		if _, ok := seen[e]; ok {
-			continue
+		if _, ok := seen[e]; !ok {
+			result = append(result, e)
+			seen[e] = struct{}{}
 		}
-		result = append(result, e)
-		seen[e] = struct{}{}
 	}
 	return result
 }
@@ -84,7 +123,7 @@ func SliceLastIndexOf[T comparable](list []T, element T) int {
 func sliceReverse[T any](list []T) {
 	length := len(list)
 	half := length / 2
-	for i := 0; i < half; i++ {
+	for i := range half {
 		j := length - 1 - i
 		list[i], list[j] = list[j], list[i]
 	}
@@ -92,6 +131,9 @@ func sliceReverse[T any](list []T) {
 
 // SliceReverse 反转切片中的元素, 缺点原地反转
 func SliceReverse[T any](list []T) []T {
+	if len(list) <= 1 {
+		return list
+	}
 	sliceReverse(list)
 	return list
 }
@@ -106,15 +148,19 @@ func SliceCloneReverse[T any](list []T) []T {
 
 // SliceMin 返回切片中的最小值
 func SliceMin[T cmp.Ordered](list ...T) T {
-	var min T
 	if len(list) == 0 {
-		return min
+		var zero T
+		return zero
 	}
-	min = list[0]
+
+	if len(list) == 1 {
+		return list[0]
+	}
+
+	min := list[0]
 	for i := 1; i < len(list); i++ {
-		item := list[i]
-		if item < min {
-			min = item
+		if list[i] < min {
+			min = list[i]
 		}
 	}
 	return min
@@ -122,15 +168,19 @@ func SliceMin[T cmp.Ordered](list ...T) T {
 
 // SliceMax 返回切片中的最大值
 func SliceMax[T cmp.Ordered](list ...T) T {
-	var max T
 	if len(list) == 0 {
-		return max
+		var zero T
+		return zero
 	}
-	max = list[0]
+
+	if len(list) == 1 {
+		return list[0]
+	}
+
+	max := list[0]
 	for i := 1; i < len(list); i++ {
-		item := list[i]
-		if item > max {
-			max = item
+		if list[i] > max {
+			max = list[i]
 		}
 	}
 	return max
@@ -138,7 +188,12 @@ func SliceMax[T cmp.Ordered](list ...T) T {
 
 // SliceSum 计算切片中所有元素的总和
 func SliceSum[T Float | Integer | Complex](list []T) T {
-	var sum T = 0
+	var sum T
+	if len(list) == 0 {
+		return sum
+	}
+
+	// 直接计算避免零值问题
 	for _, val := range list {
 		sum += val
 	}
@@ -213,16 +268,11 @@ func SliceSome[T comparable](list, subset []T) bool {
 	}
 
 	// 投机命中：先用 list 的前一小段与 subset 做扫描，提升高命中场景性能
-	limit := n
-	if limit > 50 {
-		limit = 50
-	}
+	limit := min(n, 50)
 	for i := 0; i < limit; i++ {
 		v := list[i]
-		for _, s := range subset {
-			if v == s {
-				return true
-			}
+		if slices.Contains(subset, v) {
+			return true
 		}
 	}
 
@@ -262,20 +312,32 @@ func SliceIntersect[T comparable](list1 []T, list2 []T) []T {
 	if len(list1) == 0 || len(list2) == 0 {
 		return []T{}
 	}
-	capHint := len(list1)
-	if len(list2) < capHint {
-		capHint = len(list2)
+
+	// 优化：总是对较小的切片建立map以节省空间
+	var shorter, longer []T
+	if len(list1) <= len(list2) {
+		shorter, longer = list1, list2
+	} else {
+		shorter, longer = list2, list1
 	}
-	result := make([]T, 0, capHint)
-	// 0: 不存在 1: 存在于 list1 2: 已输出
-	seen := make(map[T]uint8, len(list1))
-	for _, elem := range list1 {
-		seen[elem] = 1
+
+	result := make([]T, 0, len(shorter)/2+1) // 保守估计交集大小
+	seen := make(map[T]struct{}, len(shorter))
+
+	// 首先记录较小的切片
+	for _, elem := range shorter {
+		seen[elem] = struct{}{}
 	}
-	for _, elem := range list2 {
-		if seen[elem] == 1 {
-			seen[elem] = 2
-			result = append(result, elem)
+
+	// 然后遍历较长的切片，查找交集
+	processed := make(map[T]struct{}, len(shorter)/2+1) // 跟踪已添加元素以去除重复
+	for _, elem := range longer {
+		if _, exists := seen[elem]; exists {
+			// 检查是否已经添加过该元素
+			if _, wasProcessed := processed[elem]; !wasProcessed {
+				result = append(result, elem)
+				processed[elem] = struct{}{}
+			}
 		}
 	}
 	return result

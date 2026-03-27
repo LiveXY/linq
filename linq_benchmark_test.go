@@ -105,7 +105,7 @@ func BenchmarkSort(b *testing.B) {
 // BenchmarkFromMap 基准测试：从 Map 创建查询
 func BenchmarkFromMap(b *testing.B) {
 	data := make(map[int]int)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		data[i] = i
 	}
 	b.ResetTimer()
@@ -312,7 +312,7 @@ func BenchmarkDataSource(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ch := make(chan int, 100)
-		for j := 0; j < 100; j++ {
+		for j := range 100 {
 			ch <- j
 		}
 		close(ch)
@@ -421,8 +421,7 @@ func BenchmarkMoreUtilityFns(b *testing.B) {
 func BenchmarkStaticFunctions(b *testing.B) {
 	data := makeRange(0, 1000)
 	q := From(data)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

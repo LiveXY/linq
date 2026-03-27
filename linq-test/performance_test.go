@@ -43,27 +43,27 @@ func init() {
 	rng := rand.New(rand.NewPCG(seed, seed+1))
 
 	intData = make([]int, size)
-	for i := 0; i < size; i++ {
+	for i := range size {
 		intData[i] = i
 	}
 
 	intDataOther = make([]int, size)
-	for i := 0; i < size; i++ {
+	for i := range size {
 		intDataOther[i] = i + size/2 // 与 intData 有一半重叠
 	}
 
 	intSubset = make([]int, size/10)
-	for i := 0; i < size/10; i++ {
+	for i := range size / 10 {
 		intSubset[i] = rng.IntN(size) // 固定随机种子，保证可复现
 	}
 
 	duplicateData = make([]int, size)
-	for i := 0; i < size; i++ {
+	for i := range size {
 		duplicateData[i] = i % 1000 // 重复出现 0-999（1000个唯一项，重复100次）
 	}
 
 	userList = make([]User, size)
-	for i := 0; i < size; i++ {
+	for i := range size {
 		userList[i] = User{
 			ID:     i,
 			Name:   fmt.Sprintf("用户%d", i),
@@ -109,7 +109,7 @@ func BenchmarkAhmetbWhere(b *testing.B) {
 	var query = ahmetb.From(intData)
 	for i := 0; i < b.N; i++ {
 		var res []int
-		query.Where(func(i interface{}) bool {
+		query.Where(func(i any) bool {
 			return i.(int)%2 == 0
 		}).ToSlice(&res)
 	}
@@ -166,7 +166,7 @@ func BenchmarkAhmetbSelect(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var res []int
-		query.Select(func(i interface{}) interface{} {
+		query.Select(func(i any) any {
 			return i.(int) * 2
 		}).ToSlice(&res)
 	}
@@ -235,9 +235,9 @@ func BenchmarkAhmetbChain(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var res []int
-		query.Where(func(i interface{}) bool {
+		query.Where(func(i any) bool {
 			return i.(int)%2 == 0
-		}).Select(func(i interface{}) interface{} {
+		}).Select(func(i any) any {
 			return i.(int) * 2
 		}).ToSlice(&res)
 	}
@@ -302,9 +302,9 @@ func BenchmarkAhmetbStruct(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var res []string
-		query.Where(func(i interface{}) bool {
+		query.Where(func(i any) bool {
 			return i.(User).Age > 18
-		}).Select(func(i interface{}) interface{} {
+		}).Select(func(i any) any {
 			return i.(User).Name
 		}).ToSlice(&res)
 	}
@@ -391,7 +391,7 @@ func BenchmarkAhmetbOneSort(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var res []User
-		query.OrderBy(func(i interface{}) interface{} {
+		query.OrderBy(func(i any) any {
 			return i.(User).Age
 		}).ToSlice(&res)
 	}
@@ -484,9 +484,9 @@ func BenchmarkAhmetbTwoSort(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var res []User
-		query.OrderBy(func(i interface{}) interface{} {
+		query.OrderBy(func(i any) any {
 			return i.(User).Age
-		}).ThenBy(func(i interface{}) interface{} {
+		}).ThenBy(func(i any) any {
 			return i.(User).Gender
 		}).ToSlice(&res)
 	}
@@ -633,11 +633,11 @@ func BenchmarkAhmetbThreeSort(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		var res []User
-		query.OrderBy(func(i interface{}) interface{} {
+		query.OrderBy(func(i any) any {
 			return i.(User).Age
-		}).ThenBy(func(i interface{}) interface{} {
+		}).ThenBy(func(i any) any {
 			return i.(User).Gender
-		}).ThenBy(func(i interface{}) interface{} {
+		}).ThenBy(func(i any) any {
 			return i.(User).ID
 		}).ToSlice(&res)
 	}
@@ -926,13 +926,7 @@ func BenchmarkNativeContains(b *testing.B) {
 	target := size - 1
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		found := false
-		for _, v := range intData {
-			if v == target {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(intData, target)
 		_ = found
 	}
 }
@@ -951,7 +945,7 @@ func BenchmarkLiveXYEvery(b *testing.B) {
 func BenchmarkAhmetbEvery(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = ahmetb.From(intSubset).All(func(i interface{}) bool {
+		_ = ahmetb.From(intSubset).All(func(i any) bool {
 			return ahmetb.From(intData).Contains(i)
 		})
 	}
@@ -998,7 +992,7 @@ func BenchmarkLiveXYSome(b *testing.B) {
 func BenchmarkAhmetbSome(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = ahmetb.From(intSubset).AnyWith(func(i interface{}) bool {
+		_ = ahmetb.From(intSubset).AnyWith(func(i any) bool {
 			return ahmetb.From(intData).Contains(i)
 		})
 	}
@@ -1045,10 +1039,8 @@ func SomeOptimized[T comparable](collection []T, subset []T) bool {
 	// 1. 小数据量直接暴力 (Threshold = 128)
 	if n1 < 128 || n2 < 128 {
 		for _, v := range collection {
-			for _, s := range subset {
-				if v == s {
-					return true
-				}
+			if slices.Contains(subset, v) {
+				return true
 			}
 		}
 		return false
@@ -1057,18 +1049,13 @@ func SomeOptimized[T comparable](collection []T, subset []T) bool {
 	// 2. 启发式：尝试快速命中
 	// 检查 collection 的前 K 个元素是否在 subset 中。
 	const speculationLimit = 50
-	limit := speculationLimit
-	if n1 < limit {
-		limit = n1
-	}
+	limit := min(n1, speculationLimit)
 
 	// 提前进行少量双重循环扫描，期望在高命中率场景下快速返回
 	for i := 0; i < limit; i++ {
 		v := collection[i]
-		for _, s := range subset {
-			if v == s {
-				return true
-			}
+		if slices.Contains(subset, v) {
+			return true
 		}
 	}
 
@@ -1090,10 +1077,7 @@ func SomeOptimized[T comparable](collection []T, subset []T) bool {
 			set[v] = struct{}{}
 		}
 		// 跳过已检查的部分
-		start := speculationLimit
-		if start > n1 {
-			start = n1
-		}
+		start := min(speculationLimit, n1)
 		for i := start; i < n1; i++ {
 			if _, ok := set[collection[i]]; ok {
 				return true
@@ -1130,7 +1114,7 @@ func BenchmarkAhmetbNone(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		// All 返回 true 如果 predicate 对所有元素都为 true
 		// 这里 predicate 是 "不包含"，所以 All(不包含) == None(包含)
-		_ = q.All(func(i interface{}) bool {
+		_ = q.All(func(i any) bool {
 			return !ahmetb.From(intData).Contains(i)
 		})
 	}
@@ -1404,7 +1388,7 @@ func BenchmarkNativeReverse(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		res := make([]int, len(intData))
 		n := len(intData)
-		for j := 0; j < n; j++ {
+		for j := range n {
 			res[j] = intData[n-1-j]
 		}
 		_ = res

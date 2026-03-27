@@ -1327,8 +1327,7 @@ func TestQueryRemaining(t *testing.T) {
 // 补充 ForEachParallelCtx
 func TestForEachParallelCtxCoverage(t *testing.T) {
 	q := From([]int{1, 2, 3, 4, 5})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var sum int32
 	q.ForEachParallelCtx(ctx, func(i int) {
@@ -1855,7 +1854,7 @@ func TestMixedPathYieldBreak(t *testing.T) {
 // 测试 SelectAsyncCtx 并发 panic 竞态
 func TestAsyncPanicRace(t *testing.T) {
 	// 针对 SelectAsyncCtx 的 default panic 分支（增加压力触发竞态）
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		func() {
 			defer func() { recover() }()
 			SelectAsyncCtx(context.Background(), From([]int{1, 2, 3, 4, 5}), func(n int) int {
@@ -1977,7 +1976,7 @@ func TestFastWhereSetAndPanicLoop(t *testing.T) {
 	AverageBy(qiMany.Where(func(i int) bool { return false }), func(i int) int { return i })
 
 	// --- 5. 竞态与 Panic ---
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		func() {
 			defer func() { recover() }()
 			SelectAsyncCtx(context.Background(), From([]int{1, 2}), func(n int) int { panic("!") }, 2).ToSlice()
@@ -2590,15 +2589,15 @@ func TestElementOKAPIs(t *testing.T) {
 
 func TestSetProperties(t *testing.T) {
 	rng := rand.New(rand.NewPCG(20260306, 7))
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		na := rng.IntN(40)
 		nb := rng.IntN(40)
 		a := make([]int, na)
 		b := make([]int, nb)
-		for j := 0; j < na; j++ {
+		for j := range na {
 			a[j] = rng.IntN(21) - 10
 		}
-		for j := 0; j < nb; j++ {
+		for j := range nb {
 			b[j] = rng.IntN(21) - 10
 		}
 
@@ -2665,7 +2664,7 @@ func FuzzWhereSelectEquivalent(f *testing.F) {
 func TestSliceSomeBranches(t *testing.T) {
 	buildRange := func(start, count int) []int {
 		out := make([]int, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			out[i] = start + i
 		}
 		return out

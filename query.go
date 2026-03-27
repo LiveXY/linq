@@ -99,7 +99,7 @@ func QueryRepeat[T comparable](element T, count int) Query[T] {
 	}
 	return Query[T]{
 		iterate: func(yield func(T) bool) {
-			for i := 0; i < count; i++ {
+			for range count {
 				if !yield(element) {
 					return
 				}

@@ -1894,7 +1894,7 @@ func TestElementOKAPIBranches(t *testing.T) {
 }
 
 func TestSelectAsyncCtxPanicStress(t *testing.T) {
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		func() {
 			defer func() { _ = recover() }()
 			SelectAsyncCtx(context.Background(), From([]int{1, 2, 3, 4, 5, 6, 7, 8}), func(n int) int {

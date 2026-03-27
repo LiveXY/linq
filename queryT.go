@@ -169,7 +169,7 @@ func (q Query[T]) Reverse() Query[T] {
 				if q.fastWhere == nil {
 					n := len(q.fastSlice)
 					result := make([]T, n)
-					for i := 0; i < n; i++ {
+					for i := range n {
 						result[i] = q.fastSlice[n-1-i]
 					}
 					return result
@@ -441,12 +441,7 @@ func (q Query[T]) Any() bool {
 		if q.fastWhere == nil {
 			return len(q.fastSlice) > 0
 		}
-		for _, v := range q.fastSlice {
-			if q.fastWhere(v) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(q.fastSlice, q.fastWhere)
 	}
 	for range q.iterate {
 		return true

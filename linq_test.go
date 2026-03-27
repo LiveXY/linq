@@ -268,7 +268,7 @@ func TestSelectAsync(t *testing.T) {
 		perm[v] = true
 	}
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		if !perm[i*2] {
 			t.Errorf("缺失期望值 %d", i*2)
 		}
