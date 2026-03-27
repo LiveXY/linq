@@ -1,6 +1,6 @@
 module linq_benchmark
 
-go 1.25
+go 1.26
 
 require (
 	github.com/ahmetb/go-linq/v3 v3.2.0

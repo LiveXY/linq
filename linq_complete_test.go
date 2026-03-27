@@ -1903,3 +1903,28 @@ func TestSelectAsyncCtxPanicStress(t *testing.T) {
 		}()
 	}
 }
+
+// Task 3: 测试链路覆盖（使用 Go 1.26 的 new(expr) 重构冗余指针初始化）
+func TestGo126NewExprOptimization(t *testing.T) {
+	// 在 Go 1.26 之间，基本类型的指针需要临时变量：
+	// val := "linq"
+	// ptr := &val
+	
+	// 在 Go 1.26 及以后，利用 new(expr) 直出基本类型与字面量指针：
+	strPtr := new("linq test")
+	intPtr := new(2026)
+	
+	if *strPtr != "linq test" {
+		t.Error("new(expr) for string 失败")
+	}
+	if *intPtr != 2026 {
+		t.Error("new(expr) for int 失败")
+	}
+	
+	// 配合 Query 验证指针对象的引用处理：
+	q := From([]*int{new(1), new(2), new(3)})
+	sum := SumBy(q, func(p *int) int { return *p })
+	if sum != 6 {
+		t.Error("new(expr) 在 From 和 SumBy 查询中的求和逻辑失败")
+	}
+}

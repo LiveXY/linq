@@ -231,11 +231,24 @@ func MaxBy[T comparable, R cmp.Ordered](q Query[T], selector func(T) R) T {
 func Sum[T Integer | Float | Complex](q Query[T]) T {
 	if q.fastSlice != nil {
 		var sum T
-		for _, v := range q.fastSlice {
-			if q.fastWhere != nil && !q.fastWhere(v) {
-				continue
+		if q.fastWhere != nil {
+			for _, v := range q.fastSlice {
+				if !q.fastWhere(v) {
+					continue
+				}
+				sum += v
 			}
-			sum += v
+		} else {
+			// 8路循环展开，极大提升 CPU 流水线吞吐和计算速度
+			list := q.fastSlice
+			length := len(list)
+			i := 0
+			for ; i <= length-8; i += 8 {
+				sum += list[i] + list[i+1] + list[i+2] + list[i+3] + list[i+4] + list[i+5] + list[i+6] + list[i+7]
+			}
+			for ; i < length; i++ {
+				sum += list[i]
+			}
 		}
 		return sum
 	}
